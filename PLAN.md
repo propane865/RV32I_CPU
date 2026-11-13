@@ -223,7 +223,7 @@ Ports stay named (readable diffs); only the storage inside is packed.
   - [ ] Add `Makefile` (`lint`, `lint-asic`, `sim`, `waves`, `synth`) + `.gitignore` + CI workflow
   - [ ] **Record `build/baseline.log`** — the exact PASS/FAIL transcript. Expect `test_branches`
         "BLT signed" to FAIL (finding A1); that failure is the acceptance target for Phase 7a.
-- [ ] **Phase 1 — encodings**: create `rtl/defines.vh`; replace literals in `control.v`, `alu.v`,
+- [x] **Phase 1 — encodings**: create `rtl/defines.vh`; replace literals in `control.v`, `alu.v`,
       `imm_gen.v`, `datapath.v`; delete the duplicate `IMM_*` localparams. Pure substitution.
 - [ ] **Phase 2 — control unit**: merge the `OP`/`OP_IMM` funct3 decode into one shared block differing
       only by `alu_src`; delete redundant `alu_invert = 0`; add explicit illegal-opcode/funct3 default.

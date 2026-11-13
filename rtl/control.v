@@ -39,6 +39,10 @@ Memory R/W Width:               | mem_width
 module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, alu_cin, alu_invert, alu_sgn, alu_pass, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [2:0] alu_op, imm_sel, branch_cond);
     `include "defines.vh"
 
+    // SUB is executed as ADD with input B inverted and a carry-in of 1 (a + ~b + 1).
+    // Only R-type may subtract: for OP_IMM, funct7 overlaps the top bits of the
+    // immediate, so bit 5 there is operand data, not an opcode extension.
+    wire is_sub = (opcode == `RV_OP) && funct7[`RV_FUNC7_B5];
 
     always @(*) begin
         // Initialize default signal values
@@ -61,153 +65,56 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
         branch_cond = 0;
 
         case (opcode)
-            // R-type instructions
-            `RV_OP: begin
-                // Enable register writing, ALU inputs are from the registers
+            // -----------------------------------------------------------------
+            // R-type (OP) and register-immediate (OP_IMM) ALU instructions.
+            //
+            // These share one decode: for every funct3 they compute the same
+            // operation, and they differ only in where ALU input B comes from
+            // (rs2 vs the immediate). They used to be two ~100-line copies of
+            // each other, so every change had to be made twice.
+            // -----------------------------------------------------------------
+            `RV_OP, `RV_OP_IMM: begin
                 reg_w_ena = 1;
-                alu_src = 0;
+                // The only real difference between the two opcodes.
+                alu_src   = (opcode == `RV_OP) ? 1'b0 : 1'b1;
+                imm_sel   = `IMM_I;
+
                 case (funct3)
-                    // ADD/SUB: Addition and Subtraction
+                    // ADD / SUB / ADDI
                     `RV_F3_ADD: begin
-                        // Add (Default)
                         alu_op = `ALU_ADD;
-
-                        // Change to Subtract if funct7[5] is 1'b1, by inverting the output and incrementing using (alu_cin).
-                        alu_cin = funct7[5];
-                        alu_invert = funct7[5];
+                        // SUB is ADD with B inverted and a carry-in of 1; see is_sub.
+                        alu_cin    = is_sub;
+                        alu_invert = is_sub;
                     end
 
-                    // XOR
                     `RV_F3_XOR: alu_op = `ALU_XOR;
-
-                    // OR
-                    `RV_F3_OR: alu_op = `ALU_OR;
-
-                    // AND
+                    `RV_F3_OR:  alu_op = `ALU_OR;
                     `RV_F3_AND: alu_op = `ALU_AND;
 
-                    // SLL: Left Shift
-                    `RV_F3_SLL: begin
-                        // SLL
-                        alu_op = `ALU_SHL;
+                    // SLL / SLLI: invert stays 0, which the ALU reads as
+                    // "shift left".
+                    `RV_F3_SLL: alu_op = `ALU_SHL;
 
-                        // Disable invert for left shift
-                        alu_invert = 0;
-                    end
-
-                    // SRL/SRA: Right Shift
+                    // SRL/SRA and SRLI/SRAI: invert=1 means "shift right", and
+                    // funct7[5] picks arithmetic vs logical.
                     `RV_F3_SRL: begin
-                        // Enable invert for right shift
                         alu_invert = 1;
-
-                        // If funct7[5] is 1'b1, then do arithmetic shift, else do logical shift
-                        case (funct7[5])
-                            1'b0: begin
-                                // SRL
-                                alu_op = `ALU_SHL;
-                            end
-                            1'b1: begin
-                                // SRA
-                                alu_op = `ALU_SHA;
-                            end
-                        endcase
+                        alu_op     = funct7[`RV_FUNC7_B5] ? `ALU_SHA : `ALU_SHL;
                     end
 
-                    // SLT: Signed Comparison
+                    // SLT / SLTI: signed less-than.
                     `RV_F3_SLT: begin
-                        alu_op = `ALU_CMP;
-                        
-                        // Disable invert for less-than comparisons
-                        alu_invert = 0;
-
-                        // Enable signed comparison in ALU
+                        alu_op  = `ALU_CMP;
                         alu_sgn = 1;
                     end
 
-                    // SLTU: Unsigned Comparison
-                    `RV_F3_SLTU: begin
-                        alu_op = `ALU_CMP;
-                        
-                        // Disable invert for less-than comparisons
-                        alu_invert = 0;
+                    // SLTU / SLTIU: unsigned less-than (alu_sgn stays 0).
+                    `RV_F3_SLTU: alu_op = `ALU_CMP;
 
-                        // Disable signed comparison in ALU
-                        alu_sgn = 0;
-                    end
-                endcase
-            end
-
-            // I-type instructions
-            `RV_OP_IMM: begin
-
-                // Enable register writing, ALU input B is from the immediate
-                reg_w_ena = 1;
-                alu_src = 1;
-
-                // Use I-type immediate encoding
-                imm_sel = `IMM_I;
-
-                case (funct3)
-                    // ADDI: Add Immediate
-                    `RV_F3_ADD: alu_op = `ALU_ADD;
-
-                    // XORI: XOR Immediate
-                    `RV_F3_XOR: alu_op = `ALU_XOR;
-
-                    // ORI: OR Immediate
-                    `RV_F3_OR: alu_op = `ALU_OR;
-
-                    // ANDI: AND Immediate
-                    `RV_F3_AND: alu_op = `ALU_AND;
-
-                    // SLLI: Shift Left by Immediate
-                    `RV_F3_SLL: begin
-                        // SLLI
-                        alu_op = `ALU_SHL;
-
-                        // Disable invert for left shift
-                        alu_invert = 0;
-                    end
-
-                    // SRLI/SRAI: Shift Right by Immediate
-                    `RV_F3_SRL: begin
-                        // Enable invert for right shift
-                        alu_invert = 1;
-
-                        // If funct7[5] is 1'b1, then do arithmetic shift, else do logical shift
-                        case (funct7[5])
-                            1'b0: begin
-                                // SRLI
-                                alu_op = `ALU_SHL;
-                            end
-                            1'b1: begin
-                                // SRAI
-                                alu_op = `ALU_SHA;
-                            end
-                        endcase
-                    end
-
-                    // SLTI: Signed Comparison with Immediate
-                    `RV_F3_SLT: begin
-                        alu_op = `ALU_CMP;
-
-                        // Disable invert for less-than comparisons
-                        alu_invert = 0;
-
-                        // Enable signed comparison for ALU
-                        alu_sgn = 1;
-                    end
-
-                    // SLTIU: Unsigned Comparison with Immediate
-                    `RV_F3_SLTU: begin
-                        alu_op = `ALU_CMP;
-
-                        // Disable invert for less-than comparisons
-                        alu_invert = 0;
-
-                        // Disable signed comparison for ALU
-                        alu_sgn = 0;
-                    end
+                    // Unreachable: funct3 has exactly eight values and all
+                    // eight are decoded above.
+                    default: ;
                 endcase
             end
 
@@ -333,6 +240,13 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
                 // Use I-type immediate encoding
                 imm_sel = `IMM_I;
             end
+
+            // Anything else is not a valid RV32I opcode. Every output keeps the
+            // default assigned at the top of this block, which decodes to a NOP:
+            // no register write, no memory write, no PC redirect. This is a
+            // silent NOP rather than an illegal-instruction trap because the core
+            // has no trap support.
+            default: ;
         endcase
     end
 endmodule
