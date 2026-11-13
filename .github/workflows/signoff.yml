@@ -29,9 +29,20 @@ jobs:
       - name: Regression check
         run: make check
 
+      # The regression run only ever exercises one memory build, so check the
+      # substitution itself: same stimulus into both, same values out.
+      - name: Memory models agree
+        run: make mem-agree
+
       # "Is this still synthesizable" gate + cell/flop count for area regressions.
-      - name: Synthesis
+      - name: Synthesis (behavioural memories)
         run: make synth
+
+      # The same gate over the build OpenLane would see, macros and all. Without
+      # it the SRAM wrappers are only ever linted, never elaborated by a
+      # synthesizer.
+      - name: Synthesis (sky130 memories)
+        run: make synth-asic
 
       # Exact per-stage pipeline storage; catches a field added to a stage
       # register, which the memory-dominated design-wide count cannot.

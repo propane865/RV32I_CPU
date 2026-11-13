@@ -46,9 +46,9 @@ else
   IV_DEFS :=
 endif
 
-.PHONY: all sim check baseline lint lint-asic synth pipe-stats waves dirs clean
+.PHONY: all sim check baseline lint lint-asic synth synth-asic mem-agree pipe-stats waves dirs clean
 
-all: lint lint-asic check synth pipe-stats
+all: lint lint-asic check mem-agree synth synth-asic pipe-stats
 
 dirs:
 	@mkdir -p $(BUILD)
@@ -105,23 +105,23 @@ lint-asic: | dirs
 	$(VERILATOR) $(VL_FLAGS) +define+USE_SRAM_MEMS +define+USE_POWER_PINS -I$(RTL_DIR) -f $(ASIC_F)
 	@echo "lint-asic OK"
 
-# ------------------------------------------------------------------ synth ---
-
-# Elaboration + generic synthesis, purely as a "is this synthesizable at all"
-# gate. Cell counts are printed so refactors can prove they did not add flops.
-# yosys has no -f filelist option, so the checked-in filelist is expanded into a
-# script here rather than duplicated.
-synth: $(BUILD)/synth.ys | dirs
-	@if ! command -v $(YOSYS) >/dev/null 2>&1; then \
-		echo "synth SKIPPED: $(YOSYS) not installed"; exit 0; \
-	fi
-	@echo "== synth (elaboration + cell stats) =="
-	@$(YOSYS) -s $(BUILD)/synth.ys > $(BUILD)/synth.log 2>&1 \
-		|| { tail -25 $(BUILD)/synth.log; exit 1; }
-	@awk '/^ +Number of cells:/{c+=$$4} /DLATCH/{l+=$$2} /^[ ]+[^ ]*([Dd][Ff][Ff])[^ ]* +[0-9]+/{d+=$$2} END{printf "  total cells : %d\n  total flops : %d\n  latches     : %d\n", c, d, l}' $(BUILD)/synth.log
-	@if test "$$(awk '/DLATCH/{d+=$$2} END{print d+0}' $(BUILD)/synth.log)" != "0"; then \
-		echo "GATE FAIL: yosys inferred at least one latch"; exit 1; fi
-	@echo "synth OK (full log: $(BUILD)/synth.log)"
+# Direct model-vs-model comparison of the two memory implementations. The
+# regression run can only ever exercise one of them, so this is the gate that
+# checks the claim the other one is a stand-in for: same addresses, same stores,
+# same loads, and the macro output - one cycle later, as it must be - identical.
+# It covers every width at every byte offset, the top of memory, and the bank
+# boundary in both directions.
+mem-agree: | dirs
+	$(IVERILOG) $(IV_FLAGS) -I$(RTL_DIR) -o $(BUILD)/mem_agree.vvp \
+		$(RTL_DIR)/mem/dmem_lanes.v \
+		$(RTL_DIR)/mem/imem.v $(RTL_DIR)/mem/imem_behav.v $(RTL_DIR)/mem/imem_sram.v \
+		$(RTL_DIR)/mem/dmem.v $(RTL_DIR)/mem/dmem_behav.v $(RTL_DIR)/mem/dmem_sram.v \
+		vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v \
+		tb/mem_agree_tb.v -s agree_tb
+	@$(VVP) $(BUILD)/mem_agree.vvp | tee $(BUILD)/mem_agree.log
+	@grep -q "MEMORIES AGREE" $(BUILD)/mem_agree.log \
+		|| { echo "GATE FAIL: behavioural and sky130 data memories disagree"; exit 1; }
+	@echo "mem-agree OK"
 
 # Pipeline storage, measured per stage register. The design-wide flop count above
 # is dominated by the behavioural memories being mapped to flip-flops (~66k of
@@ -135,13 +135,61 @@ pipe-stats: | dirs
 		printf "  %-14s %5d flops\n" $$m $$n; total=$$((total+n)); \
 	done; printf "  %-14s %5d flops (total pipeline storage)\n" TOTAL $$total
 
-# Source list shared by the synth gate: the filelist minus comments/+incdir.
-$(BUILD)/srcs.txt: $(SIM_F) | dirs
+# ------------------------------------------------------------------ synth ---
+
+# Elaboration + generic synthesis, purely as a "is this synthesizable at all"
+# gate. Cell counts are printed so refactors can prove they did not add flops.
+# yosys has no -f filelist option, so the checked-in filelists are expanded into
+# scripts here rather than duplicated.
+
+# Source list shared by the synth gates: a filelist minus comments/+incdir.
+$(BUILD)/srcs-sim.txt: $(SIM_F) | dirs
 	@grep -vE '^[[:space:]]*([#]|//|$$)' $(SIM_F) | grep -v '^+incdir' > $@
 
-$(BUILD)/synth.ys: $(BUILD)/srcs.txt | dirs
-	@{ while read -r f; do echo "read_verilog -I$(RTL_DIR) $$f"; done < $(BUILD)/srcs.txt; \
+$(BUILD)/srcs-asic.txt: $(ASIC_F) | dirs
+	@grep -vE '^[[:space:]]*([#]|//|$$)' $(ASIC_F) | grep -v '^+incdir' > $@
+
+# The behavioural build maps its memories to flip-flops, so it is the one the
+# testbench and the flop gates describe. The macro build is what OpenLane would
+# see, and it needs its own gate: the SRAM wrappers are not exercised by the
+# simulation filelist at all, and an elaboration error in them would otherwise
+# only ever show up in a real tapeout flow.
+$(BUILD)/synth-sim.ys: $(BUILD)/srcs-sim.txt | dirs
+	@{ while read -r f; do echo "read_verilog -I$(RTL_DIR) $$f"; done < $<; \
 	   echo "synth -top rv32i_core"; } > $@
+
+$(BUILD)/synth-asic.ys: $(BUILD)/srcs-asic.txt | dirs
+	@{ while read -r f; do \
+	       echo "read_verilog -I$(RTL_DIR) -DUSE_SRAM_MEMS -DUSE_POWER_PINS $$f"; \
+	   done < $<; echo "synth -top rv32i_core"; } > $@
+
+# Run yosys over a generated script and gate on inferred latches.
+# $(1) = yosys script, $(2) = log suffix, $(3) = build name
+ define yosys_synth
+	@if ! command -v $(YOSYS) >/dev/null 2>&1; then \
+		echo "synth$(2) SKIPPED: $(YOSYS) not installed"; exit 0; \
+	fi
+	@echo "== synth: $(3) build (elaboration + cell stats) =="
+	@$(YOSYS) -s $(1) > $(BUILD)/synth$(2).log 2>&1 \
+		|| { tail -25 $(BUILD)/synth$(2).log; exit 1; }
+	@awk '/^ +Number of cells:/{c+=$$4} /DLATCH/{l+=$$2} /^[ ]+[^ ]*([Dd][Ff][Ff])[^ ]* +[0-9]+/{d+=$$2} END{printf "  total cells : %d\n  total flops : %d\n  latches     : %d\n", c, d, l}' $(BUILD)/synth$(2).log
+	@if test "$$(awk '/DLATCH/{d+=$$2} END{print d+0}' $(BUILD)/synth$(2).log)" != "0"; then \
+		echo "GATE FAIL: yosys inferred at least one latch in the $(3) build"; exit 1; fi
+	@echo "synth$(2) OK (full log: $(BUILD)/synth$(2).log)"
+ endef
+
+synth: $(BUILD)/synth-sim.ys | dirs
+	$(call yosys_synth,$<,,behavioural)
+
+# The macro build, with the sky130 macros instantiated as real cells: this is the
+# elaboration OpenLane performs. It cannot check macro timing or the power grid,
+# only that the RTL around them is synthesizable and latch free.
+#
+# Read the flop count here with care: the macro models in vendor/ are themselves
+# behavioural memories, so most of those "flops" are the 4 KiB of storage inside
+# them, not core state. The number that matters as a gate is latches == 0.
+synth-asic: $(BUILD)/synth-asic.ys | dirs
+	$(call yosys_synth,$<,-asic,sky130)
 
 clean:
 	rm -rf $(BUILD) obj_dir
