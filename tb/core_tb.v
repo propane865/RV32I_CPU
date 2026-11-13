@@ -300,8 +300,14 @@ module core_tb;
 
     // ── Main ──────────────────────────────────────────────────────
     initial begin
-        $dumpfile("verification/core_tb.vcd");
+        // NOTE: iverilog aborts the *whole* simulation if the dump file cannot be
+        // opened, and still exits 0 - so a missing directory silently turns the
+        // testbench into a no-op that looks like a pass. Dump into build/, which
+        // the Makefile creates, and allow `make sim NODUMP=1` to skip it.
+`ifndef NODUMP
+        $dumpfile("build/core_tb.vcd");
         $dumpvars(0, core_tb);
+`endif
         clk = 0;
         rst = 1;
 

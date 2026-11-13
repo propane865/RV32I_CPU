@@ -22,7 +22,6 @@ Carry Out:                  | cout
 
 module alu(input [31:0] a, b, input cin, input pass, input invert, input [2:0] op, input gt, lt, eq, output reg [31:0] out, output cout);
     wire [31:0] a_cmp, b_cmp, a_shift, a_b_add, a_xor_b, a_or_b, a_and_b;
-    wire gr, le, eq;
 
     reg [31:0] logic_out;
 

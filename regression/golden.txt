@@ -1,0 +1,65 @@
+VCD info: dumpfile build/core_tb.vcd opened for output.
+
+--- Test 1: Arithmetic & Logic ---
+PASS ADDI +5              | x1  = 0x00000005
+PASS ADDI +3              | x2  = 0x00000003
+PASS ADD                  | x3  = 0x00000008
+PASS SUB                  | x4  = 0x00000002
+PASS AND                  | x5  = 0x00000001
+PASS OR                   | x6  = 0x00000007
+PASS XOR                  | x7  = 0x00000006
+PASS ADDI -1              | x8  = 0xffffffff
+PASS ADD overflow         | x9  = 0x00000004
+
+--- Test 2: Shifts ---
+PASS ADDI base            | x1  = 0x00000001
+PASS SLLI x4              | x2  = 0x00000010
+PASS SRLI x2              | x3  = 0x00000004
+PASS ADDI -8              | x4  = 0xfffffff8
+PASS SRAI sign            | x5  = 0xfffffffe
+PASS SRLI zero            | x6  = 0x3ffffffe
+
+--- Test 3: Loads & Stores ---
+PASS LW                   | x2  = 0x000000ab
+PASS LB sign-ext          | x3  = 0xffffffab
+PASS LBU zero-ext         | x4  = 0x000000ab
+PASS LH positive          | x6  = 0x000001ff
+PASS LHU zero-ext         | x7  = 0x0000ffff
+PASS LH sign-ext          | x8  = 0xffffffff
+PASS SW roundtrip         | mem[0x000] = 0x000000ab
+
+--- Test 4: Comparisons ---
+PASS SLT true             | x4  = 0x00000001
+PASS SLT false            | x5  = 0x00000000
+PASS SLT neg<pos          | x6  = 0x00000001
+PASS SLTU wrap            | x7  = 0x00000000
+PASS SLTI                 | x8  = 0x00000001
+PASS SLTIU wrap           | x9  = 0x00000000
+
+--- Test 5: Branches ---
+PASS BEQ taken            | x4  = 0x0000002a
+PASS BNE taken            | x5  = 0x00000007
+PASS BLT signed           | x7  = 0x00000037
+PASS BLTU not taken       | x8  = 0x0000000b
+
+--- Test 6: JAL & JALR ---
+PASS JAL link             | x1  = 0x00000004
+PASS JAL skip             | x2  = 0x0000002a
+PASS JALR link            | x3  = 0x00000014
+
+--- Test 7: LUI & AUIPC ---
+PASS LUI                  | x1  = 0xabcde000
+PASS AUIPC                | x2  = 0x00001004
+
+--- Test 8: x0 hardwired zero ---
+PASS x0 write ignored     | x0  = 0x00000000
+PASS x0 reads zero        | x1  = 0x00000001
+
+--- Test 9: BGE & BGEU ---
+PASS BGE equal taken      | x3  = 0x00000001
+PASS U unsigned taken     | x5  = 0x00000002
+
+========================================
+ALL TESTS PASSED
+========================================
+

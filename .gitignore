@@ -1,0 +1,20 @@
+# build / simulation output
+build/
+*.vvp
+*.vcd
+*.fst
+*.log
+obj_dir/
+
+# synthesis / lint output
+*.synth
+*.json
+*.blif
+yosys.log
+
+# legacy dump path used by the old testbench
+verification/
+
+# editors
+*.swp
+*~
