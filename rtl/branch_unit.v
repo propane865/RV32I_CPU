@@ -33,9 +33,12 @@ module branch_unit (
         case (i_branch_cond)
             `RV_F3_BEQ:  condition_met = i_eq;
             `RV_F3_BNE:  condition_met = ~i_eq;
-            // BLT and BLTU are the same expression here, and so are BGE/BGEU:
-            // this core does not yet tell the comparator which comparison is
-            // wanted, so signed branches currently behave as unsigned.
+            // The signed and unsigned forms genuinely share an expression here:
+            // the difference between BLT and BLTU is not made in this table but
+            // one stage earlier, where control.v tells the comparator (comp32)
+            // which comparison to perform. This unit only picks which flag to
+            // look at. Both have to be right: dropping cmp_sgn from the branch
+            // decode silently turns BLT into BLTU.
             `RV_F3_BLT:  condition_met = i_lt;
             `RV_F3_BGE:  condition_met = i_gt | i_eq;
             `RV_F3_BLTU: condition_met = i_lt;

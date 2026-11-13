@@ -60,7 +60,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .funct3 (id_funct3), .funct7 (id_funct7)
     );
 
-    wire        id_alu_src, id_alu_sgn,
+    wire        id_alu_src, id_cmp_sgn,
                 id_reg_w_ena, id_mem_w_ena, id_mem_signed, id_branch, id_jump, id_jalr;
     wire [1:0]  id_wb_sel, id_mem_width, id_alu_src_a;
     wire [3:0]  id_alu_op;
@@ -72,7 +72,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .alu_src    (id_alu_src), .alu_src_a (id_alu_src_a),
         .reg_w_ena  (id_reg_w_ena), .mem_w_ena (id_mem_w_ena),
         .mem_signed (id_mem_signed),
-        .alu_sgn    (id_alu_sgn),
+        .cmp_sgn    (id_cmp_sgn),
         .branch     (id_branch), .jump (id_jump), .jalr (id_jalr),
         .wb_sel     (id_wb_sel), .mem_width (id_mem_width),
         .alu_op     (id_alu_op),
@@ -102,7 +102,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
 
     wire [31:0] idex_pc, idex_rs1_data, idex_rs2_data, idex_imm;
     wire [4:0]  idex_rs1, idex_rs2, idex_rd;
-    wire        idex_alu_src, idex_alu_sgn,
+    wire        idex_alu_src, idex_cmp_sgn,
                 idex_reg_w_ena, idex_mem_w_ena, idex_mem_signed,
                 idex_branch, idex_jump, idex_jalr;
     wire [1:0]  idex_wb_sel, idex_mem_width, idex_alu_src_a;
@@ -121,7 +121,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_rs2          (id_rs2),
         .i_rd           (id_rd),
         .i_alu_src      (id_alu_src),
-        .i_alu_sgn      (id_alu_sgn),
+        .i_cmp_sgn      (id_cmp_sgn),
         .i_reg_w_ena    (id_reg_w_ena),
         .i_mem_w_ena    (id_mem_w_ena),
         .i_mem_signed   (id_mem_signed),
@@ -141,7 +141,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .o_rs2          (idex_rs2),
         .o_rd           (idex_rd),
         .o_alu_src      (idex_alu_src),
-        .o_alu_sgn      (idex_alu_sgn),
+        .o_cmp_sgn      (idex_cmp_sgn),
         .o_reg_w_ena    (idex_reg_w_ena),
         .o_mem_w_ena    (idex_mem_w_ena),
         .o_mem_signed   (idex_mem_signed),
@@ -181,7 +181,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     // inputs, because a branch never uses the immediate.
     comp32 BCOMP(
         .a  (fwd_rs1), .b (fwd_rs2),
-        .u  (~idex_alu_sgn),
+        .u  (~idex_cmp_sgn),
         .gt (ex_gt_b), .lt (ex_lt_b), .eq (ex_eq_b)
     );
 

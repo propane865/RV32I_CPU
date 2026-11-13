@@ -6,8 +6,9 @@
 // signed case has to correct for the operand signs.
 //
 // This is the only place in the core that knows how signed comparison works, so
-// every consumer - SLT/SLTU and every branch - must simply be told which one it
-// wants. See the note in branch_unit.v about what happens when they are not.
+// every consumer - SLT/SLTI/SLTU/SLTIU and the four ordering branches - must be
+// told which comparison it wants via `u`. Equality (BEQ/BNE) does not depend on
+// it, so a missing assignment only ever breaks the ordering forms.
 module comp32(input [31:0] a, b, input u, output reg gt, lt, eq);
     wire [31:0] sub_out;
     wire cout;

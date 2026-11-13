@@ -22,7 +22,7 @@ module pipe_id_ex (
     input  wire [4:0]  i_rs2,
     input  wire [4:0]  i_rd,
     input  wire        i_alu_src,
-    input  wire        i_alu_sgn,
+    input  wire        i_cmp_sgn,
     input  wire        i_reg_w_ena,
     input  wire        i_mem_w_ena,
     input  wire        i_mem_signed,
@@ -43,7 +43,7 @@ module pipe_id_ex (
     output wire [4:0]  o_rs2,
     output wire [4:0]  o_rd,
     output wire        o_alu_src,
-    output wire        o_alu_sgn,
+    output wire        o_cmp_sgn,
     output wire        o_reg_w_ena,
     output wire        o_mem_w_ena,
     output wire        o_mem_signed,
@@ -77,7 +77,7 @@ module pipe_id_ex (
     wire [W-1:0] pack = {
         i_pc, i_rs1_data, i_rs2_data, i_imm,
         i_rs1, i_rs2, i_rd,
-        i_alu_src, i_alu_sgn,
+        i_alu_src, i_cmp_sgn,
         i_reg_w_ena, i_mem_w_ena, i_mem_signed, i_branch, i_jump, i_jalr,
         i_wb_sel, i_mem_width, i_alu_src_a,
         i_alu_op, i_branch_cond
@@ -91,7 +91,7 @@ module pipe_id_ex (
 
     assign { o_pc, o_rs1_data, o_rs2_data, o_imm,
              o_rs1, o_rs2, o_rd,
-             o_alu_src, o_alu_sgn,
+             o_alu_src, o_cmp_sgn,
              o_reg_w_ena, o_mem_w_ena, o_mem_signed, o_branch, o_jump, o_jalr,
              o_wb_sel, o_mem_width, o_alu_src_a,
              o_alu_op, o_branch_cond } = q;

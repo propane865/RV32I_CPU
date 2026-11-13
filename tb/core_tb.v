@@ -71,12 +71,18 @@ module core_tb;
         end
     endtask
 
-    // Clear memories and reset core
+    // Clear memories and registers, ready for the next test.
+    //
+    // The register file is included on purpose: `rst` does not clear it (it is
+    // only zeroed by the initial block at time 0), so without this every test
+    // inherits the previous test's register values. That silently makes any
+    // "register must still be zero" check meaningless.
     task clear_mem;
         integer j;
         begin
             for (j = 0; j < 1024; j = j + 1) `IMEM[j] = 32'h00000013;
             for (j = 0; j < 4096; j = j + 1) `DMEM[j] = 8'h00;
+            for (j = 1; j < 32;  j = j + 1) `RF[j]   = 32'h0;
         end
     endtask
 
@@ -199,32 +205,42 @@ module core_tb;
     endtask
 
     // Test 5: Branches
+    // Test 5: conditional branches, taken and not-taken.
+    //
+    // Every branch here is followed immediately by a marker instruction that
+    // loads 99 into a register used by nothing else:
+    //     branch  +8
+    //     ADDI xP, x0, 99     <- runs only if the branch was NOT taken
+    //     next instruction
+    // so xP == 0 proves taken and xP == 99 proves not-taken.
+    //
+    // Earlier versions of this test put the not-taken instruction and the taken
+    // destination next to each other and had both write the same register, so
+    // they loaded the same value whichever way the branch went and the checks
+    // passed no matter what the branch unit did. That is how BLT and BLTU were
+    // able to be the same hardware and still report PASS.
     task test_branches;
         begin
             $display("\n--- Test 5: Branches ---");
             rst = 1;
             clear_mem;
             `IMEM[0]  = 32'h00100093; // ADDI x1, x0, 1
-            `IMEM[1]  = 32'h00100113; // ADDI x2, x0, 1
+            `IMEM[1]  = 32'hfff00113; // ADDI x2, x0, -1
             `IMEM[2]  = 32'h00200193; // ADDI x3, x0, 2
-            `IMEM[3]  = 32'h00208463; // BEQ  x1, x2, +8
-            `IMEM[4]  = 32'h06300213; // ADDI x4, x0, 99 (skipped)
-            `IMEM[5]  = 32'h02a00213; // ADDI x4, x0, 42
-            `IMEM[6]  = 32'h00309463; // BNE  x1, x3, +8
-            `IMEM[7]  = 32'h06300293; // ADDI x5, x0, 99 (skipped)
-            `IMEM[8]  = 32'h00700293; // ADDI x5, x0, 7
-            `IMEM[9]  = 32'hfff00313; // ADDI x6, x0, -1
-            `IMEM[10] = 32'h00134463; // BLT  x6, x1, +8
-            `IMEM[11] = 32'h06300393; // ADDI x7, x0, 99 (skipped)
-            `IMEM[12] = 32'h03700393; // ADDI x7, x0, 55
-            `IMEM[13] = 32'h00136463; // BLTU x6, x1, +8 (not taken)
-            `IMEM[14] = 32'h00b00413; // ADDI x8, x0, 11
+            `IMEM[3]  = 32'h00208463; // BEQ  x1, x2, +8   1 == 2? no  -> NOT taken
+            `IMEM[4]  = 32'h06300213; // ADDI x4, x0, 99   marker
+            `IMEM[5]  = 32'h00209463; // BNE  x1, x2, +8   1 != 2? yes -> TAKEN
+            `IMEM[6]  = 32'h06300293; // ADDI x5, x0, 99   marker
+            `IMEM[7]  = 32'h00114463; // BLT  x2, x1, +8   SIGNED   -1 <  1 -> TAKEN
+            `IMEM[8]  = 32'h06300313; // ADDI x6, x0, 99   marker
+            `IMEM[9]  = 32'h00116463; // BLTU x2, x1, +8   UNSIGNED FFFFFFFF < 1 -> NOT taken
+            `IMEM[10] = 32'h06300393; // ADDI x7, x0, 99   marker
             release_reset;
-            run_cycles(26);
-            check_reg(4, 32'h0000002A, "BEQ taken");
-            check_reg(5, 32'h00000007, "BNE taken");
-            check_reg(7, 32'h00000037, "BLT signed");
-            check_reg(8, 32'h0000000B, "BLTU not taken");
+            run_cycles(24);
+            check_reg(4, 32'h00000063, "BEQ not taken");
+            check_reg(5, 32'h00000000, "BNE taken");
+            check_reg(6, 32'h00000000, "BLT signed taken");
+            check_reg(7, 32'h00000063, "BLTU unsigned not taken");
         end
     endtask
 
@@ -279,24 +295,31 @@ module core_tb;
     endtask
 
     // Test 9: BGE & BGEU
+    // Test 9: BGE / BGEU, including the cases where the signed and unsigned
+    // verdicts disagree. Same marker scheme as test_branches: probe register 0
+    // means taken, 99 means not taken.
     task test_bge;
         begin
             $display("\n--- Test 9: BGE & BGEU ---");
             rst = 1;
             clear_mem;
-            `IMEM[0] = 32'h00500093; // ADDI x1, x0, 5
-            `IMEM[1] = 32'h00500113; // ADDI x2, x0, 5
-            `IMEM[2] = 32'h00205463; // BGE  x1, x2, +8
-            `IMEM[3] = 32'h06300193; // ADDI x3, x0, 99 (skipped)
-            `IMEM[4] = 32'h00100193; // ADDI x3, x0, 1
-            `IMEM[5] = 32'hfff00213; // ADDI x4, x0, -1
-            `IMEM[6] = 32'h00526463; // BGEU x4, x1, +8
-            `IMEM[7] = 32'h06300293; // ADDI x5, x0, 99 (skipped)
-            `IMEM[8] = 32'h00200293; // ADDI x5, x0, 2
+            `IMEM[0]  = 32'h00500093; // ADDI x1, x0, 5
+            `IMEM[1]  = 32'h00500113; // ADDI x2, x0, 5
+            `IMEM[2]  = 32'hfff00193; // ADDI x3, x0, -1
+            `IMEM[3]  = 32'h0020d463; // BGE  x1, x2, +8   5 >= 5, both agree -> TAKEN
+            `IMEM[4]  = 32'h06300213; // ADDI x4, x0, 99   marker
+            `IMEM[5]  = 32'h0011d463; // BGE  x3, x1, +8   SIGNED   -1 >= 5 is false -> NOT taken
+            `IMEM[6]  = 32'h06300293; // ADDI x5, x0, 99   marker
+            `IMEM[7]  = 32'h0011f463; // BGEU x3, x1, +8   UNSIGNED FFFFFFFF >= 5 -> TAKEN
+            `IMEM[8]  = 32'h06300313; // ADDI x6, x0, 99   marker
+            `IMEM[9]  = 32'h00318463; // BEQ  x3, x3, +8   sanity, equal -> TAKEN
+            `IMEM[10] = 32'h06300393; // ADDI x7, x0, 99   marker
             release_reset;
-            run_cycles(15);
-            check_reg(3, 32'h00000001, "BGE equal taken");
-            check_reg(5, 32'h00000002, "BGEU unsigned taken");
+            run_cycles(24);
+            check_reg(4, 32'h00000000, "BGE equal taken");
+            check_reg(5, 32'h00000063, "BGE signed not taken");
+            check_reg(6, 32'h00000000, "BGEU unsigned taken");
+            check_reg(7, 32'h00000000, "BEQ equal sanity");
         end
     endtask
 

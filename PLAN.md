@@ -236,7 +236,7 @@ Ports stay named (readable diffs); only the storage inside is packed.
       named port connections everywhere.
 - [x] **Phase 5 — memories**: `rtl/mem/` with `imem`/`dmem` wrappers selecting `*_behav` vs `*_sram` via
       one define; `translate_off`-guard every `initial` in the behav models; document which impl is golden.
-- [ ] **Phase 6 — dead code & naming**: remove `pc_plus4`, `ex_alu_cout`, `jalr_cout`, `branch_cout`,
+- [x] **Phase 6 — dead code & naming**: remove `pc_plus4`, `ex_alu_cout`, `jalr_cout`, `branch_cout`,
       `id_alu_dir`, `EX1_EX2_rs1`, `EX1_EX2_rs2`, `dout0_lo/hi`, `cs_lo/hi`, `PWR_PINS`; rename
       `hazard_unit.pc_src` → `pc_redirect`; consistent lowercase `ifid_`/`idex_`/`ex1ex2_`/`exmem_`/`memwb_`
       prefixes; delete the drifted ASCII port tables. Gate: `-Wall` clean on **both** filelists.

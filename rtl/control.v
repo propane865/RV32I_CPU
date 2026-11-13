@@ -7,16 +7,18 @@
 // write, no memory write, no PC redirect) rather than latching.
 //
 // The ALU control surface is just `alu_op`: the operation code says whether to
-// invert B, whether to carry-in, and which way to shift. `alu_sgn` is the odd
-// one out - it is not consumed by the ALU but by the branch comparator, one
-// stage later - and getting that signal to the comparator for signed branches is
-// exactly what this unit currently fails to do (see branch_unit.v).
-    /* verilator lint_off UNUSEDSIGNAL */
-    // funct7 is passed as the whole architectural field even though RV32I only
-    // uses bit 5 of it (SUB vs ADD, SRA vs SRL). Narrowing the port to one bit
-    // would hide which instruction field it comes from.
-module control(input [6:0] opcode, funct7,
-    /* verilator lint_on UNUSEDSIGNAL */ input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, alu_sgn, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
+// invert B, whether to carry-in, and which way to shift. `cmp_sgn` is the odd one
+// out - it is not consumed by the ALU at all but by the comparison unit one stage
+// later. It has to be set for BOTH users of comparisons: SLT/SLTI, and the four
+// ordering branches (BLT/BGE signed, BLTU/BGEU unsigned). A branch decode that
+// forgets it still passes every BEQ/BNE test, because equality does not depend on
+// signedness - which is exactly how this bug survived for so long.
+// funct7 is taken as the whole architectural field even though RV32I only uses
+// bit 5 of it (SUB vs ADD, SRA vs SRL); narrowing the port to one bit would hide
+// which instruction field it came from.
+/* verilator lint_off UNUSEDSIGNAL */
+module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, cmp_sgn, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
+/* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
     wire is_sub = (opcode == `RV_OP) && funct7[`RV_FUNC7_B5];
@@ -24,7 +26,7 @@ module control(input [6:0] opcode, funct7,
     always @(*) begin
         // Initialize default signal values
         alu_op    = `ALU_ADD;
-        alu_sgn   = 0;
+        cmp_sgn   = 0;
         alu_src = 0;
         alu_src_a = `ALU_A_RS1;
         reg_w_ena = 0;
@@ -74,10 +76,10 @@ module control(input [6:0] opcode, funct7,
                     // SLT / SLTI: signed less-than.
                     `RV_F3_SLT: begin
                         alu_op  = `ALU_CMP;
-                        alu_sgn = 1;
+                        cmp_sgn = 1;   // signed: the comparator must be told
                     end
 
-                    // SLTU / SLTIU: unsigned less-than (alu_sgn stays 0).
+                    // SLTU / SLTIU: unsigned less-than (cmp_sgn stays 0).
                     `RV_F3_SLTU: alu_op = `ALU_CMP;
 
                     // Unreachable: funct3 has exactly eight values and all
@@ -128,6 +130,16 @@ module control(input [6:0] opcode, funct7,
             `RV_BRANCH: begin
                 // Enable CPU branching
                 branch = 1;
+
+                // Tell the comparator which comparison this branch wants.
+                // funct3[1] is the signed flag across the four ordering forms:
+                // BLT(100)/BGE(101) are signed, BLTU(110)/BGEU(111) unsigned.
+                // (funct3[2] is not the flag - it separates the ordering forms
+                // from BEQ/BNE.) BEQ and BNE only look at eq, which does not
+                // depend on signedness, so the value they get here is a don't
+                // care. Without this line every branch compares unsigned and
+                // BLT is indistinguishable from BLTU.
+                cmp_sgn = ~funct3[1];
 
                 // ALU is not used for these instructions, but both ALU inputs are from the registers
                 alu_src = 0;
