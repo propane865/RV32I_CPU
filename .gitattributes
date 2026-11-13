@@ -1,0 +1,10 @@
+# Normalise line endings in the repository. The sources were uploaded with a mix
+# of CRLF and LF, so any scripted edit of a CRLF file rewrites every line and
+# buries the real change in the diff.
+* text=auto
+*.v    text
+*.vh   text
+*.f    text
+*.md   text
+*.yml  text
+Makefile text
