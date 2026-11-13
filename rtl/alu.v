@@ -21,6 +21,8 @@ Carry Out:                  | cout
 */
 
 module alu(input [31:0] a, b, input cin, input pass, input invert, input [2:0] op, input gt, lt, eq, output reg [31:0] out, output cout);
+    `include "defines.vh"
+
     wire [31:0] a_cmp, b_cmp, a_shift, a_b_add, a_xor_b, a_or_b, a_and_b;
 
     reg [31:0] logic_out;
@@ -41,14 +43,14 @@ module alu(input [31:0] a, b, input cin, input pass, input invert, input [2:0] o
     always @(*) begin
         // Choose the output depending on the selected ALU operation
         case (op)
-            3'b000: logic_out = a_and_b;                        // AND
-            3'b001: logic_out = a_or_b;                         // OR
-            3'b010: logic_out = a_xor_b;                        // XOR
-            3'b011: logic_out = a_b_add;                        // ADD/SUB
-            3'b100: logic_out = a_shift;                        // LOGICAL SHIFT
-            3'b101: logic_out = a_shift;                        // ARITHMETIC SHIFT
-            3'b110: logic_out = {31'b0, invert ? gt : lt};      // LESS/GREATER
-            3'b111: logic_out = {31'b0, eq ^ invert};           // EQUAL/UNEQUAL
+            `ALU_AND: logic_out = a_and_b;
+            `ALU_OR:  logic_out = a_or_b;
+            `ALU_XOR: logic_out = a_xor_b;
+            `ALU_ADD: logic_out = a_b_add;
+            `ALU_SHL: logic_out = a_shift;
+            `ALU_SHA: logic_out = a_shift;
+            `ALU_CMP: logic_out = {31'b0, invert ? gt : lt};
+            3'b111:   logic_out = {31'b0, eq ^ invert};  // DEAD: control never emits this
             default: logic_out = 32'h0;
         endcase
 

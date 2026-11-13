@@ -17,6 +17,8 @@ Readout Data:   | r_data
 */
 
 module dmem(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w_data, output reg [31:0] r_data);
+    `include "defines.vh"
+
     // 4096 memory cells, 1 byte (8 bits) each
     reg [7:0] mem [0:4095];
 
@@ -25,16 +27,16 @@ module dmem(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w
         if (w_ena) begin
             case (width)
                 // Store a byte
-                2'b00: begin
+                `MEM_B: begin
                     mem[addr[11:0]] <= w_data[7:0];
                 end
                 // Store a halfword
-                2'b01: begin
+                `MEM_H: begin
                     mem[addr[11:0]] <= w_data[7:0];
                     mem[addr[11:0] + 1] <= w_data[15:8];
                 end
                 // Store a word
-                2'b10: begin
+                `MEM_W: begin
                     mem[addr[11:0]] <= w_data[7:0];
                     mem[addr[11:0] + 1] <= w_data[15:8];
                     mem[addr[11:0] + 2] <= w_data[23:16];
@@ -48,15 +50,15 @@ module dmem(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w
     always @(*) begin
         case (width)
             // Load a byte
-            2'b00: begin
+            `MEM_B: begin
                 r_data = is_signed ? {{24{mem[addr[11:0]][7]}}, mem[addr[11:0]]} : {24'b0, mem[addr[11:0]]};
             end
             // Load a halfword
-            2'b01: begin
+            `MEM_H: begin
                 r_data = is_signed ? {{16{mem[addr[11:0] + 1][7]}}, mem[addr[11:0] + 1], mem[addr[11:0]]} : {16'b0, mem[addr[11:0] + 1], mem[addr[11:0]]};
             end
             // Load a word
-            2'b10: begin
+            `MEM_W: begin
                 r_data = {mem[addr[11:0] + 3], mem[addr[11:0] + 2], mem[addr[11:0] + 1], mem[addr[11:0]]};
             end
 

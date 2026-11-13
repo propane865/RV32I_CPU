@@ -19,6 +19,8 @@ Memory Write Enable:    | dmem_w_ena
 */
 
 module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dmem_rdata, output [1:0] dmem_width, output dmem_w_ena);
+    `include "defines.vh"
+
     // Initialize relevant wires
     wire stall_pc, stall_if_id, flush_if_id, flush_id_ex, flush_ex1_ex2;
     wire [1:0] forward_a, forward_b;
@@ -47,7 +49,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         // If a control hazard or reset signal is detected, reset program counter and reset pipelined instruction to NOP
         if (rst || flush_if_id) begin
             IF_ID_pc <= 32'h0;
-            IF_ID_instr <= 32'h00000013;
+            IF_ID_instr <= `RV_NOP;
         end
         // If there is no load-use hazard, store the current instruction
         else if (!stall_if_id) begin
@@ -135,7 +137,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
             ID_EX_jump <= 1'b0;
             ID_EX_jalr <= 1'b0;
             ID_EX_wb_sel <= 2'b0;
-            ID_EX_mem_width <= 2'b10;
+            ID_EX_mem_width <= `MEM_W;
             ID_EX_alu_src_a <= 2'b0;
             ID_EX_alu_op <= 3'b0;
             ID_EX_branch_cond <= 3'b0;
@@ -170,16 +172,16 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     // ===============================================Stage 3 - Execute 1===============================================
     wire [31:0] fwd_rs1, fwd_rs2;
 
-    assign fwd_rs1 = (forward_a == 2'b11) ? EX1_EX2_alu_out : (forward_a == 2'b10) ? EX_MEM_alu_out : (forward_a == 2'b01) ? wb_data : ID_EX_rs1_data;
-    assign fwd_rs2 = (forward_b == 2'b11) ? EX1_EX2_alu_out : (forward_b == 2'b10) ? EX_MEM_alu_out : (forward_b == 2'b01) ? wb_data : ID_EX_rs2_data;
+    assign fwd_rs1 = (forward_a == `FWD_EX1)   ? EX1_EX2_alu_out : (forward_a == `FWD_EXMEM) ? EX_MEM_alu_out : (forward_a == `FWD_MEMWB) ? wb_data : ID_EX_rs1_data;
+    assign fwd_rs2 = (forward_b == `FWD_EX1)   ? EX1_EX2_alu_out : (forward_b == `FWD_EXMEM) ? EX_MEM_alu_out : (forward_b == `FWD_MEMWB) ? wb_data : ID_EX_rs2_data;
 
     // Determine ALU inputs A and B:
     wire [31:0] alu_a, alu_b;
 
-    // alu_src_a = 2'b10: The immediate is passed to input A. 
-    // alu_src_a = 2'b01: The program counter is passed instead.
+    // alu_src_a = `ALU_A_IMM: The immediate is passed to input A. 
+    // alu_src_a = `ALU_A_PC: The program counter is passed instead.
     // If alu_src takes on any other value, then source register 1 is passed to imput A.
-    assign alu_a = (ID_EX_alu_src_a == 2'b10) ? ID_EX_imm : (ID_EX_alu_src_a == 2'b01) ? ID_EX_pc : fwd_rs1;
+    assign alu_a = (ID_EX_alu_src_a == `ALU_A_IMM) ? ID_EX_imm : (ID_EX_alu_src_a == `ALU_A_PC) ? ID_EX_pc : fwd_rs1;
 
     // If alu_src is 1'b1, then the immediate is passed to input B.
     // Otherwise, the source register 2 is passed to input B.
@@ -229,7 +231,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
             EX1_EX2_mem_w_ena <= 1'b0;
             EX1_EX2_mem_signed <= 1'b0;
             EX1_EX2_wb_sel <= 2'b0;
-            EX1_EX2_mem_width <= 2'b10;
+            EX1_EX2_mem_width <= `MEM_W;
             EX1_EX2_jump <= 1'b0;
             EX1_EX2_jalr <= 1'b0;
             EX1_EX2_branch <= 1'b0;
@@ -267,12 +269,12 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     reg ex_condition_met_r;
     always @(*) begin
         case (EX1_EX2_branch_cond)
-            3'b000: ex_condition_met_r = EX1_EX2_eq;
-            3'b001: ex_condition_met_r = ~EX1_EX2_eq;
-            3'b100: ex_condition_met_r = EX1_EX2_lt;
-            3'b101: ex_condition_met_r = EX1_EX2_gt | EX1_EX2_eq;
-            3'b110: ex_condition_met_r = EX1_EX2_lt;
-            3'b111: ex_condition_met_r = EX1_EX2_gt | EX1_EX2_eq;
+            `RV_F3_BEQ:  ex_condition_met_r = EX1_EX2_eq;
+            `RV_F3_BNE:  ex_condition_met_r = ~EX1_EX2_eq;
+            `RV_F3_BLT:  ex_condition_met_r = EX1_EX2_lt;
+            `RV_F3_BGE:  ex_condition_met_r = EX1_EX2_gt | EX1_EX2_eq;
+            `RV_F3_BLTU: ex_condition_met_r = EX1_EX2_lt;
+            `RV_F3_BGEU: ex_condition_met_r = EX1_EX2_gt | EX1_EX2_eq;
             default: ex_condition_met_r = 1'b0;
         endcase
     end
@@ -307,7 +309,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
             EX_MEM_mem_w_ena <= 1'b0;
             EX_MEM_mem_signed <= 1'b0;
             EX_MEM_wb_sel <= 2'b0;
-            EX_MEM_mem_width <= 2'b10;
+            EX_MEM_mem_width <= `MEM_W;
         end
         else begin
             EX_MEM_alu_out <= EX1_EX2_alu_out;
@@ -363,15 +365,15 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     assign wb_rd = MEM_WB_rd;
 
     // Determine the data to writeback into the registers.
-    // wb_sel = 2'b00: Writeback the ALU output
-    // wb_sel = 2'b01: Writeback the Memory Readout
-    // wb_sel = 2'b10: Writeback the program counter plus 4
+    // `WB_ALU: Writeback the ALU output
+    // `WB_MEM: Writeback the Memory Readout
+    // `WB_PC4: Writeback the program counter plus 4
     reg [31:0] wb_data_r;
     always @(*) begin
         case (MEM_WB_wb_sel)
-            2'b00: wb_data_r = MEM_WB_alu_out;
-            2'b01: wb_data_r = MEM_WB_mem_rdata;
-            2'b10: wb_data_r = MEM_WB_pc_plus4;
+            `WB_ALU: wb_data_r = MEM_WB_alu_out;
+            `WB_MEM: wb_data_r = MEM_WB_mem_rdata;
+            `WB_PC4: wb_data_r = MEM_WB_pc_plus4;
             default: wb_data_r = 32'b0;
         endcase
     end
@@ -379,7 +381,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
 
     // ===============================================Hazard Unit========================================================
     hazard_unit HU(
-        .id_ex_mem_read(ID_EX_reg_w_ena && (ID_EX_mem_w_ena == 1'b0) && (ID_EX_wb_sel == 2'b01)),
+        .id_ex_mem_read(ID_EX_reg_w_ena && (ID_EX_mem_w_ena == 1'b0) && (ID_EX_wb_sel == `WB_MEM)),
         .id_ex_rd(ID_EX_rd),
         .if_id_rs1(id_rs1),
         .if_id_rs2(id_rs2),

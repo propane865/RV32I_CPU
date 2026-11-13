@@ -30,9 +30,14 @@ GOLDEN   := regression/golden.txt
 VL_FLAGS := --lint-only -Wall --top-module rv32i_core
 IV_FLAGS := -g2005 -Wall
 
+# Simulator chatter that is not part of the test verdict (VCD open/close notices)
+# must not reach the golden transcript, or `make check` would disagree with
+# itself depending on whether dumping was enabled.
+FILTER   := sed -e '/^VCD /d'
+
 NODUMP   ?= 0
 ifeq ($(NODUMP),1)
-  IV_DEFS := +define+NODUMP
+  IV_DEFS := -DNODUMP
 else
   IV_DEFS :=
 endif
@@ -50,7 +55,7 @@ $(VVP_SIM): $(TB) $(SIM_F) $(wildcard $(RTL_DIR)/*.v) $(wildcard $(RTL_DIR)/mem/
 	$(IVERILOG) $(IV_FLAGS) $(IV_DEFS) -I$(RTL_DIR) -c $(SIM_F) -o $@ $(TB) -s core_tb
 
 sim: $(VVP_SIM) | dirs
-	@$(VVP) $< | tee $(SIM_LOG)
+	@$(VVP) $< | $(FILTER) | tee $(SIM_LOG)
 
 # Alias kept for clarity: same as sim, but the VCD is discarded.
 waves: $(TB) $(SIM_F) | dirs
@@ -61,7 +66,7 @@ waves: $(TB) $(SIM_F) | dirs
 # (e.g. an unopenable $dumpfile kills iverilog with exit status 0) has happened
 # here before, so a verdict-less log is treated as a failure.
 check: $(VVP_SIM) | dirs
-	@$(VVP) $< > $(SIM_LOG)
+	@$(VVP) $< | $(FILTER) > $(SIM_LOG)
 	@if ! grep -qE "ALL TESTS PASSED|TEST\(S\) FAILED" $(SIM_LOG); then \
 		echo "GATE FAIL: no verdict found in $(SIM_LOG) - the testbench did not run."; \
 		tail -5 $(SIM_LOG); exit 1; \

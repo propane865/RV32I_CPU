@@ -211,7 +211,7 @@ Ports stay named (readable diffs); only the storage inside is packed.
 
 ## Steps
 
-- [ ] **Phase 0 — make behaviour lockable**
+- [x] **Phase 0 — make behaviour lockable**
   - [ ] Install tooling: `apt-get install -y iverilog verilator` (Debian bookworm has both; network verified)
   - [ ] Fix **only** the compile blocker: `alu.v:25` `wire gr, le, eq;` re-declares port `eq` → delete the
         declaration (and the dead `gr`/`le`). Nothing else changes in this step.

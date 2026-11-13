@@ -1,4 +1,3 @@
-VCD info: dumpfile build/core_tb.vcd opened for output.
 
 --- Test 1: Arithmetic & Logic ---
 PASS ADDI +5              | x1  = 0x00000005

@@ -7,6 +7,8 @@ Instruction Output:     | instr
 */
 
 module imem(input [31:0] pc, output[31:0] instr);
+    `include "defines.vh"
+
     // 1024 memory cells, 4 bytes (32 bits) each
     reg [31:0] mem [0:1023];
 
@@ -17,7 +19,7 @@ module imem(input [31:0] pc, output[31:0] instr);
     integer i;
     initial begin
         for (i = 0; i < 1024; i = i + 1) begin
-            mem[i] = 32'h00000013;
+            mem[i] = `RV_NOP;
         end
     end
 endmodule
