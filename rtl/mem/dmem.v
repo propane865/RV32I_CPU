@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // Data memory - implementation selection. See rtl/mem/imem.v for why an ifdef
 // switch and mutually exclusive filelists rather than one module.
 //

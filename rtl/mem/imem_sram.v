@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // Instruction memory - sky130 macro implementation
 //
 // 4 KiB built from two sky130_sram_2kbyte_1rw1r_32x512_8 macros (2 KiB each),
@@ -10,7 +11,10 @@
 // returns a stale word. See the note in vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v.
 // Left as found: fixing it is a fetch-stage change, not a wrapper change.
 
+    /* verilator lint_off UNUSEDSIGNAL */
+    // Same 4 KiB word-addressed decode as the behavioural model.
 module imem_sram(input [31:0] pc, output [31:0] instr);
+    /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
 `ifdef USE_POWER_PINS

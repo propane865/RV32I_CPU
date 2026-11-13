@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // CPU control unit - main decode
 //
 // Purely combinational: instruction fields in, control fields out. Every output
@@ -10,7 +11,12 @@
 // one out - it is not consumed by the ALU but by the branch comparator, one
 // stage later - and getting that signal to the comparator for signed branches is
 // exactly what this unit currently fails to do (see branch_unit.v).
-module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, alu_sgn, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
+    /* verilator lint_off UNUSEDSIGNAL */
+    // funct7 is passed as the whole architectural field even though RV32I only
+    // uses bit 5 of it (SUB vs ADD, SRA vs SRL). Narrowing the port to one bit
+    // would hide which instruction field it comes from.
+module control(input [6:0] opcode, funct7,
+    /* verilator lint_on UNUSEDSIGNAL */ input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, alu_sgn, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
     `include "defines.vh"
 
     wire is_sub = (opcode == `RV_OP) && funct7[`RV_FUNC7_B5];

@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // ID/EX pipeline register
 //
 // Carries the decoded instruction from the decode stage into execute 1: the

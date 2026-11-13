@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // Instruction memory - implementation selection
 //
 // The core needs 4 KiB of read-only instruction storage. There are two very

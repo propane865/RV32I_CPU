@@ -1,26 +1,19 @@
-// Program Counter
+`timescale 1ns/1ns
+// Program counter
+//
+// Holds the address of the instruction being fetched. Reloaded with a redirect
+// target when a branch or jump is taken, frozen on a load-use stall, otherwise
+// advances by four.
 
-/*
-Clock:                      | clk
------------------------------------------
-Reset:                      | rst
------------------------------------------
-Program Counter Source:     | pc_src
------------------------------------------
-Program Counter Target:     | pc_target
------------------------------------------
-Program Counter Output:     | pc_out
------------------------------------------
-Program Counter Plus 4:     | pc_plus4
-*/
-
-module pc(input clk, rst, stall, pc_src, input [31:0] pc_target, output [31:0] pc_out, pc_plus4);
+module pc(input clk, rst, stall, pc_src, input [31:0] pc_target, output [31:0] pc_out);
     // Store the value of the program Counter
     reg [31:0] pc_reg;
 
-    // Output bothh the program counter's value, and it's value plus 4
     assign pc_out = pc_reg;
-    assign pc_plus4 = pc_reg + 32'h4;
+    // There is deliberately no pc+4 output: the link value a JAL/JALR needs is
+    // the PC of the *jumping* instruction, which is only known two stages later,
+    // so branch_unit computes pc+4 from the pipelined PC. An adder here would be
+    // dead hardware (and previously was).
 
     // Update program counter at every clock cycle
     always @(posedge clk) begin

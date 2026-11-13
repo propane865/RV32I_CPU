@@ -1,22 +1,12 @@
-// Registers
-
-/*
-Clock:                          | clk
--------------------------------------------
-Write Enable:                   | w_ena
--------------------------------------------
-Source Register 1 Address:      | rs1
--------------------------------------------
-Source Register 1 Address:      | rs2
--------------------------------------------
-Destination Register Address:   | rd
--------------------------------------------
-Write Data:                     | w_data
--------------------------------------------
-Register 1 Readout:             | r_data1
--------------------------------------------
-Register 2 Readout:             | r_data2
-*/
+`timescale 1ns/1ns
+// Register file - 32 x 32-bit, two read ports, one write port
+//
+// x0 is not stored: it is not allocated in the array, reads as zero and discards
+// writes, so the zero guarantee cannot be broken by a stray write enable.
+//
+// The read ports forward a write that is happening on the same clock edge. That
+// is what lets a value written in writeback be used by an instruction in decode
+// in the same cycle, which the forwarding paths alone do not cover.
 
 module regfile(input clk, w_ena, input [4:0] rs1, rs2, rd, input [31:0] w_data, output [31:0] r_data1, r_data2);
     // 32 General-Purpose Registers, 32-bit (Register x0 is the zero register)

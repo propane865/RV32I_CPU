@@ -1,20 +1,10 @@
+`timescale 1ns/1ns
+// Instruction field splitter
+//
+// Pure wiring: slices the 32-bit instruction into the architectural fields the
+// decoder and immediate generator need. Kept as its own module so the field
+// positions are written down exactly once.
 // RV32I Instruction Decoder
-
-/*
-Instruction:                    | instr
--------------------------------------------
-Opcode:                         | opcode
--------------------------------------------
-Funct7:                         | funct7
--------------------------------------------
-Destination Register Address:   | rd
--------------------------------------------
-Source Register 1 Address:      | rs1
--------------------------------------------
-Source Register 2 Address:      | rs2
--------------------------------------------
-Funct3:                         | funct3
-*/
 
 module decoder(input [31:0] instr, output [6:0] opcode, funct7, output [4:0] rd, rs1, rs2, output [2:0] funct3);
     // Decode instructions into parts

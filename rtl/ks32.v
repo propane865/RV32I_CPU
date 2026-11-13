@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // 32-bit Kogge-Stone (carry-look-ahead) adder: sum = a + b + cin, plus carry out.
 //
 // Five log-depth combine stages, so the carry settles in O(log n) rather than
@@ -9,8 +10,13 @@ module ks32(input [31:0] a, b, input cin, output [31:0] sum, output cout);
     assign g0 = a & b;
     assign p0 = a ^ b;
 
-    wire [31:0] g1, g2, g3, g4, g5;
+    /* verilator lint_off UNUSEDSIGNAL */
+    // The last combine stage computes group generate/propagate for every bit, but
+    // the carry equations only read g5/p5 for bits 1..31 - the carry into bit 0 is
+    // cin itself. So g5[0] and p5[0] are structurally dead.
+        wire [31:0] g1, g2, g3, g4, g5;
     wire [31:0] p1, p2, p3, p4, p5;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     genvar i;
 

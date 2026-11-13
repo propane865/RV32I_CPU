@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // 32-bit barrel shifter.
 //
 // Five stages of the same 2:1 mux, one per shift-amount bit, so the worst-case

@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // ALU
 //
 // Interface note. This ALU previously took `cin`, `invert` and `pass` alongside

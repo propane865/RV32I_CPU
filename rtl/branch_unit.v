@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // Branch unit - execute 2
 //
 // Decides whether the instruction in execute 2 redirects the PC, and to where.

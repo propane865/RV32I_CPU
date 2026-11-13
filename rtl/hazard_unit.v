@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // Hazard control unit
 //
 // Two independent reasons to disturb the front of the pipeline:

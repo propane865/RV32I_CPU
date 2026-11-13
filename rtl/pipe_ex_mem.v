@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // EX/MEM pipeline register
 //
 // Carries the executed instruction into the memory stage.

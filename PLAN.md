@@ -234,7 +234,7 @@ Ports stay named (readable diffs); only the storage inside is packed.
 - [x] **Phase 4 — ALU cluster**: split `alu.v` into four files; remove the unreachable `3'b111` arm;
       replace the overloaded `invert`/`pass`/`op[0]` coupling with an internal decode of `alu_op`;
       named port connections everywhere.
-- [ ] **Phase 5 — memories**: `rtl/mem/` with `imem`/`dmem` wrappers selecting `*_behav` vs `*_sram` via
+- [x] **Phase 5 — memories**: `rtl/mem/` with `imem`/`dmem` wrappers selecting `*_behav` vs `*_sram` via
       one define; `translate_off`-guard every `initial` in the behav models; document which impl is golden.
 - [ ] **Phase 6 — dead code & naming**: remove `pc_plus4`, `ex_alu_cout`, `jalr_cout`, `branch_cout`,
       `id_alu_dir`, `EX1_EX2_rs1`, `EX1_EX2_rs2`, `dout0_lo/hi`, `cs_lo/hi`, `PWR_PINS`; rename

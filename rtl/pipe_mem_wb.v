@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // MEM/WB pipeline register
 //
 // Last staging register before the register file write port. See pipe_ex_mem.v

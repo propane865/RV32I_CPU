@@ -1,22 +1,12 @@
-// Instantiate core with datapath
-
-/*
-Clock:                  | clk
---------------------------------------
-Reset:                  | rst
---------------------------------------
-Program Counter:        | pc_out
---------------------------------------
-Memory Address:         | dmem_addr
---------------------------------------
-Memory Write Data:      | dmem_wdata
---------------------------------------
-Memory Read Data:       | dmem_rdata
---------------------------------------
-Memory Write Enable:    | dmem_w_ena
---------------------------------------
-Memory Data Width:      | width
-*/
+`timescale 1ns/1ns
+// RV32I core - top level
+//
+// Six-stage pipelined RV32I CPU. The ports are the interface the testbench and
+// any SoC wrapper need: the clock and reset, the current fetch address, and the
+// data-memory access as it happens in the MEM stage (exposed so a bus or a
+// waveform viewer can observe memory traffic without reaching into the core).
+//
+// Everything else is inside datapath.v.
 
 module rv32i_core(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dmem_rdata, output [1:0] dmem_width, output dmem_w_ena);
     datapath DP(

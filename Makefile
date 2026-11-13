@@ -27,7 +27,11 @@ SIM_LOG  := $(BUILD)/sim.log
 GOLDEN   := regression/golden.txt
 
 # Verilator is expected to be silent; -Wall is a hard gate (no -Wno-fatal).
-VL_FLAGS := --lint-only -Wall --top-module rv32i_core
+#
+# The one rule switched off globally: an instance port deliberately left open
+# (.cout()) is the idiomatic way to say "this output is not needed", and it is
+# used that way consistently for discarded carries and unused macro read ports.
+VL_FLAGS := --lint-only -Wall -Wno-PINCONNECTEMPTY --top-module rv32i_core
 IV_FLAGS := -g2005 -Wall
 
 # Simulator chatter that is not part of the test verdict (VCD open/close notices)

@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // Data memory - behavioural model (simulation only)
 //
 // 4 KiB of byte-addressable storage with a synchronous write port and a
@@ -9,7 +10,11 @@
 // Sub-word accesses are taken from addr[11:0] with the bytes read upwards, i.e.
 // addr[1:0] is ignored beyond selecting the containing byte. That is not what
 // rtl/mem/dmem_sram.v does - see the note in rtl/mem/dmem.v.
+    /* verilator lint_off UNUSEDSIGNAL */
+    // The data memory is 4 KiB, so addr[11:0] is all that decodes; the upper
+    // bits are ignored, not checked (out-of-range addresses wrap).
 module dmem_behav(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w_data, output reg [31:0] r_data);
+    /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
     reg [7:0] mem [0:4095];

@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // IF/ID pipeline register
 //
 // Holds the fetched instruction and its PC. This is the only stage register

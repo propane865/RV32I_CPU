@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // Data memory - sky130 macro implementation
 //
 // 4 KiB built from two sky130_sram_2kbyte_1rw1r_32x512_8 macros (2 KiB each),
@@ -13,7 +14,10 @@
 // combinational read port of rtl/mem/dmem_behav.v provides. See the note in
 // vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v.
 
+    /* verilator lint_off UNUSEDSIGNAL */
+    // Same 4 KiB decode as the behavioural model.
 module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w_data, output reg [31:0] r_data);
+    /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
 `ifdef USE_POWER_PINS
@@ -87,7 +91,23 @@ module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] ad
     );
 
     wire [31:0] raw = sel_upper ? rdata_hi : rdata_lo;
-    wire [31:0] word_at_off = raw >> {byte_off, 3'b0};   // align to byte_off
+    // The 16 bits starting at addr[1:0], brought down to bit 0 for extension.
+    // Written as a mux over the byte offset rather than a variable shift: it uses
+    // every bit of the read word, and it states what an unaligned halfword at
+    // offset 3 actually reads (one real byte, zero filled) instead of depending on
+    // how a shifter drops the off-the-end bits. A word read ignores this and takes
+    // raw directly.
+    reg [15:0] word_at_off;
+    always @(*) begin
+        case (byte_off)
+            2'd0:    word_at_off = raw[15:0];
+            2'd1:    word_at_off = raw[23:8];
+            2'd2:    word_at_off = raw[31:16];
+            // Unaligned halfword at the top byte: only raw[31:24] is in range.
+            2'd3:    word_at_off = {8'h00, raw[31:24]};
+            default: word_at_off = 16'h0000;   // unreachable, 2'd3 is the last case
+        endcase
+    end
 
     // Sign/zero extend the selected bytes. The MSB of the extracted field decides
     // the fill, per RV32I (LB/LBU, LH/LHU, LW).

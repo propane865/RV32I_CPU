@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // CPU datapath - wiring between the pipeline stages
 //
 // Six stages:      IF      ID       EX1        EX2       MEM      WB
@@ -20,7 +21,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire [1:0]  forward_a, forward_b;
 
     // ===============================================Stage 1 - Fetch===========
-    wire [31:0] pc_current, pc_plus4, pc_target, instr_if;
+    wire [31:0] pc_current, pc_target, instr_if;
     wire        pc_src;
 
     pc PC(
@@ -29,13 +30,12 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .stall    (stall_pc),
         .pc_src   (pc_src),
         .pc_target(pc_target),
-        .pc_out   (pc_current),
-        .pc_plus4 (pc_plus4)
+        .pc_out   (pc_current)
     );
 
     imem IMEM(.pc(pc_current), .instr(instr_if));
 
-    wire [31:0] IF_ID_pc, IF_ID_instr;
+    wire [31:0] ifid_pc, ifid_instr;
 
     pipe_if_id IF_ID(
         .clk     (clk),
@@ -44,8 +44,8 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .stall   (stall_if_id),
         .i_pc    (pc_current),
         .i_instr (instr_if),
-        .o_pc    (IF_ID_pc),
-        .o_instr (IF_ID_instr)
+        .o_pc    (ifid_pc),
+        .o_instr (ifid_instr)
     );
 
     // ===============================================Stage 2 - Decode==========
@@ -54,7 +54,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire [2:0] id_funct3;
 
     decoder DEC(
-        .instr  (IF_ID_instr),
+        .instr  (ifid_instr),
         .opcode (id_opcode),
         .rd     (id_rd), .rs1 (id_rs1), .rs2 (id_rs2),
         .funct3 (id_funct3), .funct7 (id_funct7)
@@ -95,25 +95,25 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire [31:0] id_imm;
 
     imm_gen IMMGEN(
-        .instr  (IF_ID_instr),
+        .instr  (ifid_instr),
         .imm_sel(id_imm_sel),
         .imm    (id_imm)
     );
 
-    wire [31:0] ID_EX_pc, ID_EX_rs1_data, ID_EX_rs2_data, ID_EX_imm;
-    wire [4:0]  ID_EX_rs1, ID_EX_rs2, ID_EX_rd;
-    wire        ID_EX_alu_src, ID_EX_alu_sgn,
-                ID_EX_reg_w_ena, ID_EX_mem_w_ena, ID_EX_mem_signed,
-                ID_EX_branch, ID_EX_jump, ID_EX_jalr;
-    wire [1:0]  ID_EX_wb_sel, ID_EX_mem_width, ID_EX_alu_src_a;
-    wire [3:0]  ID_EX_alu_op;
-    wire [2:0]  ID_EX_branch_cond;
+    wire [31:0] idex_pc, idex_rs1_data, idex_rs2_data, idex_imm;
+    wire [4:0]  idex_rs1, idex_rs2, idex_rd;
+    wire        idex_alu_src, idex_alu_sgn,
+                idex_reg_w_ena, idex_mem_w_ena, idex_mem_signed,
+                idex_branch, idex_jump, idex_jalr;
+    wire [1:0]  idex_wb_sel, idex_mem_width, idex_alu_src_a;
+    wire [3:0]  idex_alu_op;
+    wire [2:0]  idex_branch_cond;
 
     pipe_id_ex ID_EX(
         .clk            (clk),
         .rst            (rst),
         .flush          (flush_id_ex),
-        .i_pc           (IF_ID_pc),
+        .i_pc           (ifid_pc),
         .i_rs1_data     (id_rs1_data),
         .i_rs2_data     (id_rs2_data),
         .i_imm          (id_imm),
@@ -133,46 +133,46 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_alu_src_a    (id_alu_src_a),
         .i_alu_op       (id_alu_op),
         .i_branch_cond  (id_branch_cond),
-        .o_pc           (ID_EX_pc),
-        .o_rs1_data     (ID_EX_rs1_data),
-        .o_rs2_data     (ID_EX_rs2_data),
-        .o_imm          (ID_EX_imm),
-        .o_rs1          (ID_EX_rs1),
-        .o_rs2          (ID_EX_rs2),
-        .o_rd           (ID_EX_rd),
-        .o_alu_src      (ID_EX_alu_src),
-        .o_alu_sgn      (ID_EX_alu_sgn),
-        .o_reg_w_ena    (ID_EX_reg_w_ena),
-        .o_mem_w_ena    (ID_EX_mem_w_ena),
-        .o_mem_signed   (ID_EX_mem_signed),
-        .o_branch       (ID_EX_branch),
-        .o_jump         (ID_EX_jump),
-        .o_jalr         (ID_EX_jalr),
-        .o_wb_sel       (ID_EX_wb_sel),
-        .o_mem_width    (ID_EX_mem_width),
-        .o_alu_src_a    (ID_EX_alu_src_a),
-        .o_alu_op       (ID_EX_alu_op),
-        .o_branch_cond  (ID_EX_branch_cond)
+        .o_pc           (idex_pc),
+        .o_rs1_data     (idex_rs1_data),
+        .o_rs2_data     (idex_rs2_data),
+        .o_imm          (idex_imm),
+        .o_rs1          (idex_rs1),
+        .o_rs2          (idex_rs2),
+        .o_rd           (idex_rd),
+        .o_alu_src      (idex_alu_src),
+        .o_alu_sgn      (idex_alu_sgn),
+        .o_reg_w_ena    (idex_reg_w_ena),
+        .o_mem_w_ena    (idex_mem_w_ena),
+        .o_mem_signed   (idex_mem_signed),
+        .o_branch       (idex_branch),
+        .o_jump         (idex_jump),
+        .o_jalr         (idex_jalr),
+        .o_wb_sel       (idex_wb_sel),
+        .o_mem_width    (idex_mem_width),
+        .o_alu_src_a    (idex_alu_src_a),
+        .o_alu_op       (idex_alu_op),
+        .o_branch_cond  (idex_branch_cond)
     );
 
     // ===============================================Stage 3 - Execute 1=======
     // Operand forwarding: prefer the youngest pending writer of a register.
     wire [31:0] fwd_rs1, fwd_rs2;
 
-    assign fwd_rs1 = (forward_a == `FWD_EX1)   ? EX1_EX2_alu_out :
-                     (forward_a == `FWD_EXMEM) ? EX_MEM_alu_out :
-                     (forward_a == `FWD_MEMWB) ? wb_data : ID_EX_rs1_data;
-    assign fwd_rs2 = (forward_b == `FWD_EX1)   ? EX1_EX2_alu_out :
-                     (forward_b == `FWD_EXMEM) ? EX_MEM_alu_out :
-                     (forward_b == `FWD_MEMWB) ? wb_data : ID_EX_rs2_data;
+    assign fwd_rs1 = (forward_a == `FWD_EX1)   ? ex1ex2_alu_out :
+                     (forward_a == `FWD_EXMEM) ? exmem_alu_out :
+                     (forward_a == `FWD_MEMWB) ? wb_data : idex_rs1_data;
+    assign fwd_rs2 = (forward_b == `FWD_EX1)   ? ex1ex2_alu_out :
+                     (forward_b == `FWD_EXMEM) ? exmem_alu_out :
+                     (forward_b == `FWD_MEMWB) ? wb_data : idex_rs2_data;
 
     // ALU input A: the immediate (LUI), the PC (AUIPC), or rs1.
     // ALU input B: the immediate for register-immediate ops, otherwise rs2.
     wire [31:0] alu_a, alu_b;
 
-    assign alu_a = (ID_EX_alu_src_a == `ALU_A_IMM) ? ID_EX_imm :
-                   (ID_EX_alu_src_a == `ALU_A_PC)  ? ID_EX_pc  : fwd_rs1;
-    assign alu_b = ID_EX_alu_src ? ID_EX_imm : fwd_rs2;
+    assign alu_a = (idex_alu_src_a == `ALU_A_IMM) ? idex_imm :
+                   (idex_alu_src_a == `ALU_A_PC)  ? idex_pc  : fwd_rs1;
+    assign alu_b = idex_alu_src ? idex_imm : fwd_rs2;
 
     wire [31:0] ex_alu_out;
     wire        ex_gt_b, ex_lt_b, ex_eq_b;
@@ -181,7 +181,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     // inputs, because a branch never uses the immediate.
     comp32 BCOMP(
         .a  (fwd_rs1), .b (fwd_rs2),
-        .u  (~ID_EX_alu_sgn),
+        .u  (~idex_alu_sgn),
         .gt (ex_gt_b), .lt (ex_lt_b), .eq (ex_eq_b)
     );
 
@@ -190,19 +190,19 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     alu ALU(
         .a   (alu_a),
         .b   (alu_b),
-        .op  (ID_EX_alu_op),
+        .op  (idex_alu_op),
         .lt  (ex_lt_b),
         .out (ex_alu_out)
     );
 
-    wire [31:0] EX1_EX2_alu_out, EX1_EX2_rs1_data, EX1_EX2_rs2_data;
-    wire [31:0] EX1_EX2_pc, EX1_EX2_imm;
-    wire [4:0]  EX1_EX2_rs1, EX1_EX2_rs2, EX1_EX2_rd;
-    wire [2:0]  EX1_EX2_branch_cond;
-    wire [1:0]  EX1_EX2_wb_sel, EX1_EX2_mem_width;
-    wire        EX1_EX2_reg_w_ena, EX1_EX2_mem_w_ena, EX1_EX2_mem_signed;
-    wire        EX1_EX2_jump, EX1_EX2_jalr, EX1_EX2_branch;
-    wire        EX1_EX2_gt, EX1_EX2_lt, EX1_EX2_eq;
+    wire [31:0] ex1ex2_alu_out, ex1ex2_rs1_data, ex1ex2_rs2_data;
+    wire [31:0] ex1ex2_pc, ex1ex2_imm;
+    wire [4:0]  ex1ex2_rd;
+    wire [2:0]  ex1ex2_branch_cond;
+    wire [1:0]  ex1ex2_wb_sel, ex1ex2_mem_width;
+    wire        ex1ex2_reg_w_ena, ex1ex2_mem_w_ena, ex1ex2_mem_signed;
+    wire        ex1ex2_jump, ex1ex2_jalr, ex1ex2_branch;
+    wire        ex1ex2_gt, ex1ex2_lt, ex1ex2_eq;
 
     pipe_ex1_ex2 EX1_EX2(
         .clk           (clk),
@@ -211,43 +211,39 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_alu_out     (ex_alu_out),
         .i_rs1_data    (fwd_rs1),
         .i_rs2_data    (fwd_rs2),
-        .i_pc          (ID_EX_pc),
-        .i_imm         (ID_EX_imm),
-        .i_rs1         (ID_EX_rs1),
-        .i_rs2         (ID_EX_rs2),
-        .i_rd          (ID_EX_rd),
-        .i_reg_w_ena   (ID_EX_reg_w_ena),
-        .i_mem_w_ena   (ID_EX_mem_w_ena),
-        .i_mem_signed  (ID_EX_mem_signed),
-        .i_jump        (ID_EX_jump),
-        .i_jalr        (ID_EX_jalr),
-        .i_branch      (ID_EX_branch),
+        .i_pc          (idex_pc),
+        .i_imm         (idex_imm),
+        .i_rd          (idex_rd),
+        .i_reg_w_ena   (idex_reg_w_ena),
+        .i_mem_w_ena   (idex_mem_w_ena),
+        .i_mem_signed  (idex_mem_signed),
+        .i_jump        (idex_jump),
+        .i_jalr        (idex_jalr),
+        .i_branch      (idex_branch),
         .i_gt          (ex_gt_b),
         .i_lt          (ex_lt_b),
         .i_eq          (ex_eq_b),
-        .i_wb_sel      (ID_EX_wb_sel),
-        .i_mem_width   (ID_EX_mem_width),
-        .i_branch_cond (ID_EX_branch_cond),
-        .o_alu_out     (EX1_EX2_alu_out),
-        .o_rs1_data    (EX1_EX2_rs1_data),
-        .o_rs2_data    (EX1_EX2_rs2_data),
-        .o_pc          (EX1_EX2_pc),
-        .o_imm         (EX1_EX2_imm),
-        .o_rs1         (EX1_EX2_rs1),
-        .o_rs2         (EX1_EX2_rs2),
-        .o_rd          (EX1_EX2_rd),
-        .o_reg_w_ena   (EX1_EX2_reg_w_ena),
-        .o_mem_w_ena   (EX1_EX2_mem_w_ena),
-        .o_mem_signed  (EX1_EX2_mem_signed),
-        .o_jump        (EX1_EX2_jump),
-        .o_jalr        (EX1_EX2_jalr),
-        .o_branch      (EX1_EX2_branch),
-        .o_gt          (EX1_EX2_gt),
-        .o_lt          (EX1_EX2_lt),
-        .o_eq          (EX1_EX2_eq),
-        .o_wb_sel      (EX1_EX2_wb_sel),
-        .o_mem_width   (EX1_EX2_mem_width),
-        .o_branch_cond (EX1_EX2_branch_cond)
+        .i_wb_sel      (idex_wb_sel),
+        .i_mem_width   (idex_mem_width),
+        .i_branch_cond (idex_branch_cond),
+        .o_alu_out     (ex1ex2_alu_out),
+        .o_rs1_data    (ex1ex2_rs1_data),
+        .o_rs2_data    (ex1ex2_rs2_data),
+        .o_pc          (ex1ex2_pc),
+        .o_imm         (ex1ex2_imm),
+        .o_rd          (ex1ex2_rd),
+        .o_reg_w_ena   (ex1ex2_reg_w_ena),
+        .o_mem_w_ena   (ex1ex2_mem_w_ena),
+        .o_mem_signed  (ex1ex2_mem_signed),
+        .o_jump        (ex1ex2_jump),
+        .o_jalr        (ex1ex2_jalr),
+        .o_branch      (ex1ex2_branch),
+        .o_gt          (ex1ex2_gt),
+        .o_lt          (ex1ex2_lt),
+        .o_eq          (ex1ex2_eq),
+        .o_wb_sel      (ex1ex2_wb_sel),
+        .o_mem_width   (ex1ex2_mem_width),
+        .o_branch_cond (ex1ex2_branch_cond)
     );
 
     // ===============================================Stage 4 - Execute 2=======
@@ -256,47 +252,47 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire [31:0] ex_pc_plus4;
 
     branch_unit BRU(
-        .i_branch_cond(EX1_EX2_branch_cond),
-        .i_branch     (EX1_EX2_branch),
-        .i_jump       (EX1_EX2_jump),
-        .i_jalr       (EX1_EX2_jalr),
-        .i_gt         (EX1_EX2_gt),
-        .i_lt         (EX1_EX2_lt),
-        .i_eq         (EX1_EX2_eq),
-        .i_pc         (EX1_EX2_pc),
-        .i_rs1_data   (EX1_EX2_rs1_data),
-        .i_imm        (EX1_EX2_imm),
+        .i_branch_cond(ex1ex2_branch_cond),
+        .i_branch     (ex1ex2_branch),
+        .i_jump       (ex1ex2_jump),
+        .i_jalr       (ex1ex2_jalr),
+        .i_gt         (ex1ex2_gt),
+        .i_lt         (ex1ex2_lt),
+        .i_eq         (ex1ex2_eq),
+        .i_pc         (ex1ex2_pc),
+        .i_rs1_data   (ex1ex2_rs1_data),
+        .i_imm        (ex1ex2_imm),
         .o_redirect   (pc_src),
         .o_target     (pc_target),
         .o_pc_plus4   (ex_pc_plus4)
     );
 
-    wire [31:0] EX_MEM_alu_out, EX_MEM_rs2_data, EX_MEM_pc_plus4;
-    wire [4:0]  EX_MEM_rd;
-    wire [1:0]  EX_MEM_wb_sel, EX_MEM_mem_width;
-    wire        EX_MEM_reg_w_ena, EX_MEM_mem_w_ena, EX_MEM_mem_signed;
+    wire [31:0] exmem_alu_out, exmem_rs2_data, exmem_pc_plus4;
+    wire [4:0]  exmem_rd;
+    wire [1:0]  exmem_wb_sel, exmem_mem_width;
+    wire        exmem_reg_w_ena, exmem_mem_w_ena, exmem_mem_signed;
 
     pipe_ex_mem EX_MEM(
         .clk          (clk),
         .rst          (rst),
-        .i_alu_out    (EX1_EX2_alu_out),
-        .i_rs2_data   (EX1_EX2_rs2_data),
+        .i_alu_out    (ex1ex2_alu_out),
+        .i_rs2_data   (ex1ex2_rs2_data),
         .i_pc_plus4   (ex_pc_plus4),
-        .i_rd         (EX1_EX2_rd),
-        .i_wb_sel     (EX1_EX2_wb_sel),
-        .i_mem_width  (EX1_EX2_mem_width),
-        .i_reg_w_ena  (EX1_EX2_reg_w_ena),
-        .i_mem_w_ena  (EX1_EX2_mem_w_ena),
-        .i_mem_signed (EX1_EX2_mem_signed),
-        .o_alu_out    (EX_MEM_alu_out),
-        .o_rs2_data   (EX_MEM_rs2_data),
-        .o_pc_plus4   (EX_MEM_pc_plus4),
-        .o_rd         (EX_MEM_rd),
-        .o_wb_sel     (EX_MEM_wb_sel),
-        .o_mem_width  (EX_MEM_mem_width),
-        .o_reg_w_ena  (EX_MEM_reg_w_ena),
-        .o_mem_w_ena  (EX_MEM_mem_w_ena),
-        .o_mem_signed (EX_MEM_mem_signed)
+        .i_rd         (ex1ex2_rd),
+        .i_wb_sel     (ex1ex2_wb_sel),
+        .i_mem_width  (ex1ex2_mem_width),
+        .i_reg_w_ena  (ex1ex2_reg_w_ena),
+        .i_mem_w_ena  (ex1ex2_mem_w_ena),
+        .i_mem_signed (ex1ex2_mem_signed),
+        .o_alu_out    (exmem_alu_out),
+        .o_rs2_data   (exmem_rs2_data),
+        .o_pc_plus4   (exmem_pc_plus4),
+        .o_rd         (exmem_rd),
+        .o_wb_sel     (exmem_wb_sel),
+        .o_mem_width  (exmem_mem_width),
+        .o_reg_w_ena  (exmem_reg_w_ena),
+        .o_mem_w_ena  (exmem_mem_w_ena),
+        .o_mem_signed (exmem_mem_signed)
     );
 
     // ===============================================Stage 5 - Memory==========
@@ -305,53 +301,53 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire [31:0] mem_rdata;
 
     dmem DMEM(
-        .clk      (clk), .w_ena (EX_MEM_mem_w_ena),
-        .width    (EX_MEM_mem_width), .is_signed (EX_MEM_mem_signed),
-        .addr     (EX_MEM_alu_out),
-        .w_data   (EX_MEM_rs2_data), .r_data (mem_rdata)
+        .clk      (clk), .w_ena (exmem_mem_w_ena),
+        .width    (exmem_mem_width), .is_signed (exmem_mem_signed),
+        .addr     (exmem_alu_out),
+        .w_data   (exmem_rs2_data), .r_data (mem_rdata)
     );
 
-    wire [31:0] MEM_WB_alu_out, MEM_WB_mem_rdata, MEM_WB_pc_plus4;
-    wire [4:0]  MEM_WB_rd;
-    wire [1:0]  MEM_WB_wb_sel;
-    wire        MEM_WB_reg_w_ena;
+    wire [31:0] memwb_alu_out, memwb_mem_rdata, memwb_pc_plus4;
+    wire [4:0]  memwb_rd;
+    wire [1:0]  memwb_wb_sel;
+    wire        memwb_reg_w_ena;
 
     pipe_mem_wb MEM_WB(
         .clk          (clk),
         .rst          (rst),
-        .i_alu_out    (EX_MEM_alu_out),
+        .i_alu_out    (exmem_alu_out),
         .i_mem_rdata  (mem_rdata),
-        .i_pc_plus4   (EX_MEM_pc_plus4),
-        .i_rd         (EX_MEM_rd),
-        .i_wb_sel     (EX_MEM_wb_sel),
-        .i_reg_w_ena  (EX_MEM_reg_w_ena),
-        .o_alu_out    (MEM_WB_alu_out),
-        .o_mem_rdata  (MEM_WB_mem_rdata),
-        .o_pc_plus4   (MEM_WB_pc_plus4),
-        .o_rd         (MEM_WB_rd),
-        .o_wb_sel     (MEM_WB_wb_sel),
-        .o_reg_w_ena  (MEM_WB_reg_w_ena)
+        .i_pc_plus4   (exmem_pc_plus4),
+        .i_rd         (exmem_rd),
+        .i_wb_sel     (exmem_wb_sel),
+        .i_reg_w_ena  (exmem_reg_w_ena),
+        .o_alu_out    (memwb_alu_out),
+        .o_mem_rdata  (memwb_mem_rdata),
+        .o_pc_plus4   (memwb_pc_plus4),
+        .o_rd         (memwb_rd),
+        .o_wb_sel     (memwb_wb_sel),
+        .o_reg_w_ena  (memwb_reg_w_ena)
     );
 
     // ===============================================Stage 6 - Writeback=======
-    assign wb_reg_w_ena = MEM_WB_reg_w_ena;
-    assign wb_rd        = MEM_WB_rd;
+    assign wb_reg_w_ena = memwb_reg_w_ena;
+    assign wb_rd        = memwb_rd;
 
     always @(*) begin
-        case (MEM_WB_wb_sel)
-            `WB_ALU: wb_data = MEM_WB_alu_out;
-            `WB_MEM: wb_data = MEM_WB_mem_rdata;
-            `WB_PC4: wb_data = MEM_WB_pc_plus4;
+        case (memwb_wb_sel)
+            `WB_ALU: wb_data = memwb_alu_out;
+            `WB_MEM: wb_data = memwb_mem_rdata;
+            `WB_PC4: wb_data = memwb_pc_plus4;
             default: wb_data = 32'h0;
         endcase
     end
 
     // ===============================================Hazard Unit===============
     hazard_unit HU(
-        .i_id_ex_reg_w_ena(ID_EX_reg_w_ena),
-        .i_id_ex_mem_w_ena(ID_EX_mem_w_ena),
-        .i_id_ex_wb_sel  (ID_EX_wb_sel),
-        .i_id_ex_rd      (ID_EX_rd),
+        .i_id_ex_reg_w_ena(idex_reg_w_ena),
+        .i_id_ex_mem_w_ena(idex_mem_w_ena),
+        .i_id_ex_wb_sel  (idex_wb_sel),
+        .i_id_ex_rd      (idex_rd),
         .i_if_id_rs1     (id_rs1),
         .i_if_id_rs2     (id_rs2),
         .i_pc_redirect   (pc_src),
@@ -364,23 +360,23 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
 
     // ===============================================Forwarding Unit===========
     forwarding_unit FWU(
-        .ex1_ex2_reg_w_ena(EX1_EX2_reg_w_ena),
-        .ex_mem_reg_w_ena (EX_MEM_reg_w_ena),
-        .ex_mem_rd        (EX_MEM_rd),
-        .ex1_ex2_rd       (EX1_EX2_rd),
-        .mem_wb_reg_w_ena (MEM_WB_reg_w_ena),
-        .mem_wb_rd        (MEM_WB_rd),
-        .id_ex_rs1        (ID_EX_rs1),
-        .id_ex_rs2        (ID_EX_rs2),
+        .ex1ex2_reg_w_ena(ex1ex2_reg_w_ena),
+        .exmem_reg_w_ena (exmem_reg_w_ena),
+        .exmem_rd        (exmem_rd),
+        .ex1ex2_rd       (ex1ex2_rd),
+        .memwb_reg_w_ena (memwb_reg_w_ena),
+        .memwb_rd        (memwb_rd),
+        .idex_rs1        (idex_rs1),
+        .idex_rs2        (idex_rs2),
         .forward_a        (forward_a),
         .forward_b        (forward_b)
     );
 
     // Map internal signals to outputs
     assign pc_out     = pc_current;
-    assign dmem_addr  = EX_MEM_alu_out;
-    assign dmem_wdata = EX_MEM_rs2_data;
+    assign dmem_addr  = exmem_alu_out;
+    assign dmem_wdata = exmem_rs2_data;
     assign dmem_rdata = mem_rdata;
-    assign dmem_w_ena = EX_MEM_mem_w_ena;
-    assign dmem_width = EX_MEM_mem_width;
+    assign dmem_w_ena = exmem_mem_w_ena;
+    assign dmem_width = exmem_mem_width;
 endmodule

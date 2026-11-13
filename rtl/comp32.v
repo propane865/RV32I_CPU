@@ -1,3 +1,4 @@
+`timescale 1ns/1ns
 // 32-bit magnitude comparator: gt / lt / eq of a versus b.
 //
 // Built from a subtraction (a + ~b + 1), so it costs one adder. Signedness is
