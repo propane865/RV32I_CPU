@@ -60,10 +60,11 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .funct3 (id_funct3), .funct7 (id_funct7)
     );
 
-    wire        id_alu_src, id_alu_cin, id_alu_invert, id_alu_sgn, id_alu_pass,
+    wire        id_alu_src, id_alu_sgn,
                 id_reg_w_ena, id_mem_w_ena, id_mem_signed, id_branch, id_jump, id_jalr;
     wire [1:0]  id_wb_sel, id_mem_width, id_alu_src_a;
-    wire [2:0]  id_alu_op, id_imm_sel, id_branch_cond;
+    wire [3:0]  id_alu_op;
+    wire [2:0]  id_imm_sel, id_branch_cond;
 
     control CTRL(
         .opcode     (id_opcode),
@@ -71,8 +72,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .alu_src    (id_alu_src), .alu_src_a (id_alu_src_a),
         .reg_w_ena  (id_reg_w_ena), .mem_w_ena (id_mem_w_ena),
         .mem_signed (id_mem_signed),
-        .alu_cin    (id_alu_cin), .alu_invert (id_alu_invert),
-        .alu_sgn    (id_alu_sgn), .alu_pass (id_alu_pass),
+        .alu_sgn    (id_alu_sgn),
         .branch     (id_branch), .jump (id_jump), .jalr (id_jalr),
         .wb_sel     (id_wb_sel), .mem_width (id_mem_width),
         .alu_op     (id_alu_op),
@@ -102,11 +102,12 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
 
     wire [31:0] ID_EX_pc, ID_EX_rs1_data, ID_EX_rs2_data, ID_EX_imm;
     wire [4:0]  ID_EX_rs1, ID_EX_rs2, ID_EX_rd;
-    wire        ID_EX_alu_src, ID_EX_alu_cin, ID_EX_alu_invert, ID_EX_alu_sgn,
-                ID_EX_alu_pass, ID_EX_reg_w_ena, ID_EX_mem_w_ena, ID_EX_mem_signed,
+    wire        ID_EX_alu_src, ID_EX_alu_sgn,
+                ID_EX_reg_w_ena, ID_EX_mem_w_ena, ID_EX_mem_signed,
                 ID_EX_branch, ID_EX_jump, ID_EX_jalr;
     wire [1:0]  ID_EX_wb_sel, ID_EX_mem_width, ID_EX_alu_src_a;
-    wire [2:0]  ID_EX_alu_op, ID_EX_branch_cond;
+    wire [3:0]  ID_EX_alu_op;
+    wire [2:0]  ID_EX_branch_cond;
 
     pipe_id_ex ID_EX(
         .clk            (clk),
@@ -120,10 +121,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_rs2          (id_rs2),
         .i_rd           (id_rd),
         .i_alu_src      (id_alu_src),
-        .i_alu_cin      (id_alu_cin),
-        .i_alu_invert   (id_alu_invert),
         .i_alu_sgn      (id_alu_sgn),
-        .i_alu_pass     (id_alu_pass),
         .i_reg_w_ena    (id_reg_w_ena),
         .i_mem_w_ena    (id_mem_w_ena),
         .i_mem_signed   (id_mem_signed),
@@ -143,10 +141,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .o_rs2          (ID_EX_rs2),
         .o_rd           (ID_EX_rd),
         .o_alu_src      (ID_EX_alu_src),
-        .o_alu_cin      (ID_EX_alu_cin),
-        .o_alu_invert   (ID_EX_alu_invert),
         .o_alu_sgn      (ID_EX_alu_sgn),
-        .o_alu_pass     (ID_EX_alu_pass),
         .o_reg_w_ena    (ID_EX_reg_w_ena),
         .o_mem_w_ena    (ID_EX_mem_w_ena),
         .o_mem_signed   (ID_EX_mem_signed),
@@ -180,7 +175,6 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     assign alu_b = ID_EX_alu_src ? ID_EX_imm : fwd_rs2;
 
     wire [31:0] ex_alu_out;
-    wire        ex_alu_cout;
     wire        ex_gt_b, ex_lt_b, ex_eq_b;
 
     // Branch comparisons are taken from the forwarded operands, not the ALU
@@ -191,12 +185,14 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .gt (ex_gt_b), .lt (ex_lt_b), .eq (ex_eq_b)
     );
 
+    // The comparator's results are shared between the ALU (for SLT/SLTU) and the
+    // branch unit (for the taken decision).
     alu ALU(
-        .a      (alu_a), .b (alu_b), .cin (ID_EX_alu_cin),
-        .gt     (ex_gt_b), .lt (ex_lt_b), .eq (ex_eq_b),
-        .pass   (ID_EX_alu_pass), .invert (ID_EX_alu_invert),
-        .op     (ID_EX_alu_op),
-        .out    (ex_alu_out), .cout (ex_alu_cout)
+        .a   (alu_a),
+        .b   (alu_b),
+        .op  (ID_EX_alu_op),
+        .lt  (ex_lt_b),
+        .out (ex_alu_out)
     );
 
     wire [31:0] EX1_EX2_alu_out, EX1_EX2_rs1_data, EX1_EX2_rs2_data;

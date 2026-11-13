@@ -1,56 +1,24 @@
-// CPU Control Unit
-
-/*
-Opcode:                         | opcode
------------------------------------------------
-Funct7:                         | funct7
------------------------------------------------
-Funct3:                         | funct3
------------------------------------------------
-ALU Source Select B:            | alu_src
------------------------------------------------
-Register Write Enable:          | reg_w_ena
------------------------------------------------
-Memory Write Enable:            | mem_w_ena
------------------------------------------------
-Memory Signed Read:             | mem_signed
------------------------------------------------
-ALU Input CIN:                  | alu_cin
------------------------------------------------
-ALU Input INVERT:               | alu_invert
------------------------------------------------
-ALU Input SIGNED COMPARISON:    | alu_sgn
------------------------------------------------
-ALU Input PASS:                 | alu_pass
------------------------------------------------
-Enable Branching:               | branch
------------------------------------------------
-Program Counter `RV_JAL:            | jump
------------------------------------------------
-Program Counter `RV_JALR:           | jalr
------------------------------------------------
-ALU Source Select A:            | alu_src_a
------------------------------------------------
-Writeback Selection:            | wb_sel
------------------------------------------------
-Memory R/W Width:               | mem_width
-*/
-
-module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, alu_cin, alu_invert, alu_sgn, alu_pass, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [2:0] alu_op, imm_sel, branch_cond);
+// CPU control unit - main decode
+//
+// Purely combinational: instruction fields in, control fields out. Every output
+// is a reg given a default at the top of the block, so an unrecognised opcode
+// falls through to an all-defaults encoding that behaves as a NOP (no register
+// write, no memory write, no PC redirect) rather than latching.
+//
+// The ALU control surface is just `alu_op`: the operation code says whether to
+// invert B, whether to carry-in, and which way to shift. `alu_sgn` is the odd
+// one out - it is not consumed by the ALU but by the branch comparator, one
+// stage later - and getting that signal to the comparator for signed branches is
+// exactly what this unit currently fails to do (see branch_unit.v).
+module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, alu_sgn, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
     `include "defines.vh"
 
-    // SUB is executed as ADD with input B inverted and a carry-in of 1 (a + ~b + 1).
-    // Only R-type may subtract: for OP_IMM, funct7 overlaps the top bits of the
-    // immediate, so bit 5 there is operand data, not an opcode extension.
     wire is_sub = (opcode == `RV_OP) && funct7[`RV_FUNC7_B5];
 
     always @(*) begin
         // Initialize default signal values
-        alu_op = `ALU_ADD;
-        alu_cin = 0;
-        alu_invert = 0;
-        alu_sgn = 0;
-        alu_pass = 0;
+        alu_op    = `ALU_ADD;
+        alu_sgn   = 0;
         alu_src = 0;
         alu_src_a = `ALU_A_RS1;
         reg_w_ena = 0;
@@ -81,27 +49,21 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
 
                 case (funct3)
                     // ADD / SUB / ADDI
-                    `RV_F3_ADD: begin
-                        alu_op = `ALU_ADD;
-                        // SUB is ADD with B inverted and a carry-in of 1; see is_sub.
-                        alu_cin    = is_sub;
-                        alu_invert = is_sub;
-                    end
+                    // ADD / SUB / ADDI. Only R-type can subtract: for OP_IMM,
+                    // funct7 overlaps the top bits of the immediate, so bit 5
+                    // there is operand data, not an opcode extension.
+                    `RV_F3_ADD: alu_op = is_sub ? `ALU_SUB : `ALU_ADD;
 
                     `RV_F3_XOR: alu_op = `ALU_XOR;
                     `RV_F3_OR:  alu_op = `ALU_OR;
                     `RV_F3_AND: alu_op = `ALU_AND;
 
-                    // SLL / SLLI: invert stays 0, which the ALU reads as
-                    // "shift left".
+                    // Shifts: the direction and the fill bit are part of the
+                    // operation code, so the ALU needs no extra input.
                     `RV_F3_SLL: alu_op = `ALU_SHL;
 
-                    // SRL/SRA and SRLI/SRAI: invert=1 means "shift right", and
-                    // funct7[5] picks arithmetic vs logical.
-                    `RV_F3_SRL: begin
-                        alu_invert = 1;
-                        alu_op     = funct7[`RV_FUNC7_B5] ? `ALU_SHA : `ALU_SHL;
-                    end
+                    // SRL/SRA and SRLI/SRAI: funct7[5] picks the fill.
+                    `RV_F3_SRL: alu_op = funct7[`RV_FUNC7_B5] ? `ALU_SHA : `ALU_SHR;
 
                     // SLT / SLTI: signed less-than.
                     `RV_F3_SLT: begin
@@ -177,8 +139,8 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
                 reg_w_ena = 1;
                 alu_src_a = `ALU_A_IMM;
 
-                // Enable ALU passthrough (no operation is performed on the input A)
-                alu_pass = 1;
+                // Pass ALU input A (the immediate) straight through to writeback
+                alu_op = `ALU_PASS;
 
                 // Use U-type immediate encoding
                 imm_sel = `IMM_U;

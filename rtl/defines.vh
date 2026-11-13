@@ -61,14 +61,20 @@
 `define RV_NOP     32'h00000013
 
 // --------------------------------------------------- ALU operation select ----
-// Microarchitecture-internal: control.v emits these, alu.v decodes them.
-`define ALU_AND    3'd0
-`define ALU_OR     3'd1
-`define ALU_XOR    3'd2
-`define ALU_ADD    3'd3   // also SUB, when alu_sub is set
-`define ALU_SHL    3'd4
-`define ALU_SHA    3'd5
-`define ALU_CMP    3'd6   // SLT/SLTU result, via the comparator
+// Microarchitecture-internal: control.v emits these, alu.v decodes them. Four
+// bits, because the operation alone must say everything the ALU does: SUB is
+// its own code rather than ADD plus an "invert" bit, and the three shifts each
+// say their own direction and signedness rather than borrowing one from outside.
+`define ALU_AND    4'd0
+`define ALU_OR     4'd1
+`define ALU_XOR    4'd2
+`define ALU_ADD    4'd3
+`define ALU_SUB    4'd4
+`define ALU_SHL    4'd5   // shift left
+`define ALU_SHR    4'd6   // shift right, logical (zero fill)
+`define ALU_SHA    4'd7   // shift right, arithmetic (sign fill)
+`define ALU_CMP    4'd8   // SLT / SLTU: the comparator's "a < b"
+`define ALU_PASS   4'd9   // out = a, used by LUI
 
 // ---------------------------------------------------- ALU input A select -----
 `define ALU_A_RS1  2'b00

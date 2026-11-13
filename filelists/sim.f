@@ -17,6 +17,9 @@ rtl/control.v
 rtl/imm_gen.v
 rtl/regfile.v
 rtl/alu.v
+rtl/ks32.v
+rtl/shifter.v
+rtl/comp32.v
 rtl/branch_unit.v
 rtl/hazard_unit.v
 rtl/forwarding_unit.v
