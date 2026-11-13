@@ -92,9 +92,13 @@ lint: | dirs
 	$(VERILATOR) $(VL_FLAGS) -I$(RTL_DIR) -f $(SIM_F)
 	@echo "lint OK"
 
+# The sky130 build has to be elaborated twice over: USE_SRAM_MEMS swaps the
+# behavioural memories for the macro wrappers, and USE_POWER_PINS adds the PDK
+# power pins to the macro port list. Both are linted, and CI runs this so the
+# tapeout path cannot rot unnoticed.
 lint-asic: | dirs
-	@echo "== lint (sky130 build, power pins on) =="
-	$(VERILATOR) $(VL_FLAGS) +define+USE_POWER_PINS -I$(RTL_DIR) -f $(ASIC_F)
+	@echo "== lint (sky130 build, macros + power pins) =="
+	$(VERILATOR) $(VL_FLAGS) +define+USE_SRAM_MEMS +define+USE_POWER_PINS -I$(RTL_DIR) -f $(ASIC_F)
 	@echo "lint-asic OK"
 
 # ------------------------------------------------------------------ synth ---

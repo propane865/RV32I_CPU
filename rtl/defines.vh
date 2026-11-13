@@ -106,4 +106,16 @@
 `define FWD_EXMEM  2'd2
 `define FWD_EX1    2'd3   // youngest writer, wins ties
 
+// ------------------------------------------------- sky130 macro power pins --
+// The SRAM macros carry power pins that only exist in the PDK netlist. Including
+// them in the port list is switched on with +define+USE_POWER_PINS, and both
+// wrappers need the identical spelling, so it lives here rather than being
+// copy-pasted into each one (the original copy in each file also defined an
+// unused PWR_PINS companion macro).
+`ifdef USE_POWER_PINS
+    `define PWR_CONN .vccd1(vccd1), .vssd1(vssd1),
+`else
+    `define PWR_CONN
+`endif
+
 `endif // RV32I_DEFINES_VH

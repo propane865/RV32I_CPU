@@ -31,7 +31,10 @@ rtl/pipe_ex1_ex2.v
 rtl/pipe_ex_mem.v
 rtl/pipe_mem_wb.v
 
-# memories: sky130 macros
-rtl/imem_sram.v
-rtl/dmem_sram.v
+# memories: sky130 macro wrappers (rtl/mem/*.v select these via USE_SRAM_MEMS,
+# which the Makefile defines for this build)
+rtl/mem/imem.v
+rtl/mem/imem_sram.v
+rtl/mem/dmem.v
+rtl/mem/dmem_sram.v
 vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v

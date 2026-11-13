@@ -231,7 +231,7 @@ Ports stay named (readable diffs); only the storage inside is packed.
       `BUBBLE` localparam each); move branch condition + `pc_src` + the two target adders
       (`datapath.v:255-292`) into `branch_unit.v`; move load-detect into `hazard_unit.v`; drop the
       `wb_data_r` → `wb_data` indirection; `datapath.v` ends up wires + instantiations only.
-- [ ] **Phase 4 — ALU cluster**: split `alu.v` into four files; remove the unreachable `3'b111` arm;
+- [x] **Phase 4 — ALU cluster**: split `alu.v` into four files; remove the unreachable `3'b111` arm;
       replace the overloaded `invert`/`pass`/`op[0]` coupling with an internal decode of `alu_op`;
       named port connections everywhere.
 - [ ] **Phase 5 — memories**: `rtl/mem/` with `imem`/`dmem` wrappers selecting `*_behav` vs `*_sram` via

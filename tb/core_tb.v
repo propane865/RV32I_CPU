@@ -14,10 +14,12 @@ module core_tb;
     initial clk = 0;
     always #5 clk = ~clk;
 
-    // Shorthand paths
+    // Shorthand paths. The memories sit one level deeper than the rest because
+    // rtl/mem/imem.v and rtl/mem/dmem.v pick between a behavioural model and the
+    // sky130 macros at elaboration time; IMPL is whichever one was selected.
     `define RF   DUT.DP.RF.regs
-    `define IMEM DUT.DP.IMEM.mem
-    `define DMEM DUT.DP.DMEM.mem
+    `define IMEM DUT.DP.IMEM.IMPL.mem
+    `define DMEM DUT.DP.DMEM.IMPL.mem
 
     // Helpers
     integer failed = 0;
