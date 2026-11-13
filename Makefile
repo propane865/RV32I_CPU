@@ -42,9 +42,9 @@ else
   IV_DEFS :=
 endif
 
-.PHONY: all sim check baseline lint lint-asic synth waves dirs clean
+.PHONY: all sim check baseline lint lint-asic synth pipe-stats waves dirs clean
 
-all: lint lint-asic check synth
+all: lint lint-asic check synth pipe-stats
 
 dirs:
 	@mkdir -p $(BUILD)
@@ -115,9 +115,21 @@ synth: $(BUILD)/synth.ys | dirs
 		echo "GATE FAIL: yosys inferred at least one latch"; exit 1; fi
 	@echo "synth OK (full log: $(BUILD)/synth.log)"
 
+# Pipeline storage, measured per stage register. The design-wide flop count above
+# is dominated by the behavioural memories being mapped to flip-flops (~66k of
+# it), which makes it far too noisy to notice an accidental extra field. These
+# numbers are exact: each pipe_*.v must hold precisely its declared payload.
+pipe-stats: | dirs
+	@total=0; \
+	for m in pipe_if_id pipe_id_ex pipe_ex1_ex2 pipe_ex_mem pipe_mem_wb; do \
+		n=$$($(YOSYS) -p "read_verilog -I$(RTL_DIR) $(RTL_DIR)/$$m.v; synth -top $$m" 2>/dev/null \
+		     | awk '/DFF/{d+=$$2} END{print d+0}'); \
+		printf "  %-14s %5d flops\n" $$m $$n; total=$$((total+n)); \
+	done; printf "  %-14s %5d flops (total pipeline storage)\n" TOTAL $$total
+
 # Source list shared by the synth gate: the filelist minus comments/+incdir.
 $(BUILD)/srcs.txt: $(SIM_F) | dirs
-	@grep -vE '^[[:space:]]*(#|//|$)' $(SIM_F) | grep -v '^+incdir' > $@
+	@grep -vE '^[[:space:]]*([#]|//|$$)' $(SIM_F) | grep -v '^+incdir' > $@
 
 $(BUILD)/synth.ys: $(BUILD)/srcs.txt | dirs
 	@{ while read -r f; do echo "read_verilog -I$(RTL_DIR) $$f"; done < $(BUILD)/srcs.txt; \

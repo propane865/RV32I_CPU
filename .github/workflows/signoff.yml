@@ -33,6 +33,11 @@ jobs:
       - name: Synthesis
         run: make synth
 
+      # Exact per-stage pipeline storage; catches a field added to a stage
+      # register, which the memory-dominated design-wide count cannot.
+      - name: Pipeline storage
+        run: make pipe-stats
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4

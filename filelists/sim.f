@@ -17,8 +17,14 @@ rtl/control.v
 rtl/imm_gen.v
 rtl/regfile.v
 rtl/alu.v
+rtl/branch_unit.v
 rtl/hazard_unit.v
 rtl/forwarding_unit.v
+rtl/pipe_if_id.v
+rtl/pipe_id_ex.v
+rtl/pipe_ex1_ex2.v
+rtl/pipe_ex_mem.v
+rtl/pipe_mem_wb.v
 
 # behavioural memories
 rtl/imem.v

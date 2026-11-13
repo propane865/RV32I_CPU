@@ -225,7 +225,7 @@ Ports stay named (readable diffs); only the storage inside is packed.
         "BLT signed" to FAIL (finding A1); that failure is the acceptance target for Phase 7a.
 - [x] **Phase 1 — encodings**: create `rtl/defines.vh`; replace literals in `control.v`, `alu.v`,
       `imm_gen.v`, `datapath.v`; delete the duplicate `IMM_*` localparams. Pure substitution.
-- [ ] **Phase 2 — control unit**: merge the `OP`/`OP_IMM` funct3 decode into one shared block differing
+- [x] **Phase 2 — control unit**: merge the `OP`/`OP_IMM` funct3 decode into one shared block differing
       only by `alu_src`; delete redundant `alu_invert = 0`; add explicit illegal-opcode/funct3 default.
 - [ ] **Phase 3 — datapath decomposition**: extract the five `pipe_*` modules (packed vector + one
       `BUBBLE` localparam each); move branch condition + `pc_src` + the two target adders
