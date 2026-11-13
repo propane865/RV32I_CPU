@@ -240,12 +240,12 @@ Ports stay named (readable diffs); only the storage inside is packed.
       `id_alu_dir`, `EX1_EX2_rs1`, `EX1_EX2_rs2`, `dout0_lo/hi`, `cs_lo/hi`, `PWR_PINS`; rename
       `hazard_unit.pc_src` → `pc_redirect`; consistent lowercase `ifid_`/`idex_`/`ex1ex2_`/`exmem_`/`memwb_`
       prefixes; delete the drifted ASCII port tables. Gate: `-Wall` clean on **both** filelists.
-- [ ] **Phase 7a — bug: signed branches** (behaviour-changing, own commit). Add a single
+- [x] **Phase 7a — bug: signed branches** (behaviour-changing, own commit). Add a single
       "comparison signedness" control (`cmp_sgn`) asserted by `control.v` for SLT **and** for
       `funct3[2] == 0` branches, drive `BCOMP.u = ~cmp_sgn`, and let `branch_unit` use it so BLT ≠ BLTU
       and BGE ≠ BGEU. Add directed tests: `BLT`/`BGE` with negative operands, and a case where signed
       and unsigned verdicts differ.
-- [ ] **Phase 7b — bug: memory agreement** (behaviour-changing, own commit). Make the two models agree
+- [x] **Phase 7b — bug: memory agreement** (behaviour-changing, own commit). Make the two models agree
       on unaligned sub-word access (byte-lane/wmask semantics, as `dmem_sram.v` does). Add an unaligned
       `SB` then `LW` test and a word-store across a 4095/0 boundary case; pin the chosen golden
       behaviour in a comment.

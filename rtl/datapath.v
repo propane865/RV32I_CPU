@@ -157,14 +157,29 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
 
     // ===============================================Stage 3 - Execute 1=======
     // Operand forwarding: prefer the youngest pending writer of a register.
-    wire [31:0] fwd_rs1, fwd_rs2;
+    // Which value a forwarding select actually means, applied to both operand
+    // lanes from one definition. As in forwarding_unit.v, this is a generate over
+    // the two lanes rather than a function: a function called from a continuous
+    // assignment is only sensitive to its arguments, which silently produces stale
+    // operands. The select encodings come from defines.vh, so they are interpreted
+    // in exactly one place for both operands.
+    wire [31:0] fwd_lane [0:1];
 
-    assign fwd_rs1 = (forward_a == `FWD_EX1)   ? ex1ex2_alu_out :
-                     (forward_a == `FWD_EXMEM) ? exmem_alu_out :
-                     (forward_a == `FWD_MEMWB) ? wb_data : idex_rs1_data;
-    assign fwd_rs2 = (forward_b == `FWD_EX1)   ? ex1ex2_alu_out :
-                     (forward_b == `FWD_EXMEM) ? exmem_alu_out :
-                     (forward_b == `FWD_MEMWB) ? wb_data : idex_rs2_data;
+    genvar fwd_lane_ix;
+    generate
+        for (fwd_lane_ix = 0; fwd_lane_ix < 2; fwd_lane_ix = fwd_lane_ix + 1) begin : FWD
+            wire [1:0]  sel         = (fwd_lane_ix == 0) ? forward_a    : forward_b;
+            wire [31:0] register_value = (fwd_lane_ix == 0) ? idex_rs1_data : idex_rs2_data;
+
+            assign fwd_lane[fwd_lane_ix] =
+                (sel == `FWD_EX1)   ? ex1ex2_alu_out :
+                (sel == `FWD_EXMEM) ? exmem_alu_out :
+                (sel == `FWD_MEMWB) ? wb_data : register_value;
+        end
+    endgenerate
+
+    wire [31:0] fwd_rs1 = fwd_lane[0];
+    wire [31:0] fwd_rs2 = fwd_lane[1];
 
     // ALU input A: the immediate (LUI), the PC (AUIPC), or rs1.
     // ALU input B: the immediate for register-immediate ops, otherwise rs2.
