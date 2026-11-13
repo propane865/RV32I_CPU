@@ -22,7 +22,12 @@ SIM_F    := filelists/sim.f
 ASIC_F   := filelists/asic.f
 
 BUILD    := build
-VVP_SIM  := $(BUILD)/core.vvp
+# Whether the simulation dumps is a compile-time define, so it has to be part of
+# the executable's name too. With a single shared name, `make sim NODUMP=1`
+# followed by `make waves` considered the binary up to date and re-ran the
+# no-dump build: no waveform, and no warning that one was expected.
+DUMP_MODE := $(if $(NODUMP),nodump,dump)
+VVP_SIM  := $(BUILD)/core-$(DUMP_MODE).vvp
 SIM_LOG  := $(BUILD)/sim.log
 GOLDEN   := regression/golden.txt
 
