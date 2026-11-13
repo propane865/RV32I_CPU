@@ -2,21 +2,26 @@
 // Data memory - sky130 macro implementation
 //
 // 4 KiB built from two sky130_sram_2kbyte_1rw1r_32x512_8 macros (2 KiB each),
-// banked on the top address bit. Both accesses use each macro's RW port; the
-// read-only port is tied off.
+// banked on the top address bit. Accesses use each macro's RW port; the read-only
+// port is tied off. csb is active low, so a bank's chip select is the *inverted*
+// bank select - getting that backwards sends every lower-half access to the upper
+// macro, which is what this wrapper used to do. tb/mem_agree_tb.v (make mem-agree)
+// is what now catches it, since the simulation build contains no macros.
 //
-// Sub-word accesses use the macro's byte write mask: the write word is
-// replicated across all four byte lanes and wmask0 selects the lanes that
-// actually change, so a byte or halfword store needs no read-modify-write. On
-// reads the requested lanes are extracted using addr[1:0].
+// Sub-word accesses use the macro's byte write mask, and the rules for which
+// lanes a store writes and which bytes a load reads come from dmem_lanes.v -
+// the same module the behavioural model instantiates. So the two implementations
+// now agree on the value of every load and store, including unaligned ones,
+// because there is only one place that defines them.
 //
-// CAUTION: dout0 is registered, so load data is valid one cycle later than the
-// combinational read port of rtl/mem/dmem_behav.v provides. See the note in
-// vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v.
+// CAUTION: they still disagree on *when* load data appears. dout0 is registered,
+// so here load data is valid one cycle later than the combinational read port of
+// rtl/mem/dmem_behav.v provides, and the core captures it in MEM/WB. See the note
+// in rtl/mem/dmem.v and the end of the contract in dmem_lanes.v.
 
     /* verilator lint_off UNUSEDSIGNAL */
     // Same 4 KiB decode as the behavioural model.
-module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w_data, output reg [31:0] r_data);
+module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w_data, output [31:0] r_data);
     /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
@@ -37,21 +42,8 @@ module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] ad
     wire [8:0] sram_addr = word_addr[8:0];
     wire [1:0] byte_off  = addr[1:0];
 
-    // Which byte lanes a store touches, for the given access width and offset.
-    reg [3:0] wmask;
-    always @(*) begin
-        case (width)
-            `MEM_B: wmask = 4'b0001 << byte_off;
-            `MEM_H: wmask = 4'b0011 << byte_off;
-            `MEM_W: wmask = 4'b1111;
-            default: wmask = 4'b0000;
-        endcase
-    end
-
-    // Replicate the store value across every lane so the masked lanes see the
-    // right bytes regardless of the offset.
-    wire [31:0] wdata_rep = (width == `MEM_B) ? {4{w_data[7:0]}} :
-                            (width == `MEM_H) ? {2{w_data[15:0]}} : w_data;
+    wire [3:0]  w_strb;
+    wire [31:0] w_lanes;
 
     wire [31:0] rdata_lo;
     wire [31:0] rdata_hi;
@@ -61,11 +53,11 @@ module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] ad
         `PWR_CONN
         // Port 0 (RW) - load/store port
         .clk0  (clk),
-        .csb0  (~sel_upper),
+        .csb0  (sel_upper),      // active low: bank 0 is off for upper-half accesses
         .web0  (~w_ena),
-        .wmask0(wmask),
+        .wmask0(w_strb),
         .addr0 (sram_addr),
-        .din0  (wdata_rep),
+        .din0  (w_lanes),
         .dout0 (rdata_lo),
         // Port 1 (R) - unused here
         .clk1  (1'b0),
@@ -78,11 +70,11 @@ module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] ad
     sky130_sram_2kbyte_1rw1r_32x512_8 sram1 (
         `PWR_CONN
         .clk0  (clk),
-        .csb0  (sel_upper),
+        .csb0  (~sel_upper),     // active low: bank 1 is off for lower-half accesses
         .web0  (~w_ena),
-        .wmask0(wmask),
+        .wmask0(w_strb),
         .addr0 (sram_addr),
-        .din0  (wdata_rep),
+        .din0  (w_lanes),
         .dout0 (rdata_hi),
         .clk1  (1'b0),
         .csb1  (1'b1),
@@ -90,35 +82,24 @@ module dmem_sram(input clk, w_ena, is_signed, input [1:0] width, input [31:0] ad
         .dout1 ()
     );
 
-    wire [31:0] raw = sel_upper ? rdata_hi : rdata_lo;
-    // The 16 bits starting at addr[1:0], brought down to bit 0 for extension.
-    // Written as a mux over the byte offset rather than a variable shift: it uses
-    // every bit of the read word, and it states what an unaligned halfword at
-    // offset 3 actually reads (one real byte, zero filled) instead of depending on
-    // how a shifter drops the off-the-end bits. A word read ignores this and takes
-    // raw directly.
-    reg [15:0] word_at_off;
-    always @(*) begin
-        case (byte_off)
-            2'd0:    word_at_off = raw[15:0];
-            2'd1:    word_at_off = raw[23:8];
-            2'd2:    word_at_off = raw[31:16];
-            // Unaligned halfword at the top byte: only raw[31:24] is in range.
-            2'd3:    word_at_off = {8'h00, raw[31:24]};
-            default: word_at_off = 16'h0000;   // unreachable, 2'd3 is the last case
-        endcase
-    end
+    // Each macro registers its own dout0, and a deselected macro keeps the value
+    // it last read. So the two banks have to be combined with the bank select as
+    // it was when the read was clocked, not with the current address: a load from
+    // the lower 2 KiB followed by an access in the upper 2 KiB would otherwise mux
+    // out the upper bank's stale output and hand the pipeline the wrong word.
+    reg sel_q;
+    always @(posedge clk) sel_q <= sel_upper;
 
-    // Sign/zero extend the selected bytes. The MSB of the extracted field decides
-    // the fill, per RV32I (LB/LBU, LH/LHU, LW).
-    always @(*) begin
-        case (width)
-            `MEM_B: r_data = is_signed ? {{24{word_at_off[7]}},  word_at_off[7:0]}
-                                       : {24'h0,                word_at_off[7:0]};
-            `MEM_H: r_data = is_signed ? {{16{word_at_off[15]}}, word_at_off[15:0]}
-                                       : {16'h0,                word_at_off[15:0]};
-            `MEM_W: r_data = raw;
-            default: r_data = 32'h0;
-        endcase
-    end
+    wire [31:0] raw = sel_q ? rdata_hi : rdata_lo;
+
+    dmem_lanes lanes (
+        .byte_off (byte_off),
+        .width    (width),
+        .is_signed(is_signed),
+        .w_data   (w_data),
+        .raw      (raw),
+        .w_strb   (w_strb),
+        .w_lanes  (w_lanes),
+        .r_data   (r_data)
+    );
 endmodule

@@ -323,6 +323,63 @@ module core_tb;
         end
     endtask
 
+    // Test 10: unaligned sub-word accesses - the memory system's contract.
+    //
+    // The rule both data memories implement (rtl/mem/dmem_lanes.v) is that an
+    // access is confined to the word containing its address: an access never
+    // reaches into the neighbouring word. These checks pin that down, including
+    // the cases where the old behavioural model and the sky130 macros disagreed:
+    //
+    //   * byte accesses are exact at every offset - one byte never straddles,
+    //     and an unaligned SB is visible to the aligned LW that covers it
+    //   * LHU at offset 3 reads only the word's top byte (0x0011); the old
+    //     byte-addressed model reached next door and returned 0x2211
+    //   * LH / SH keep the value with the address: SH 0x0344 at offset 3 puts
+    //     0x44 in byte 3 and leaves byte 4 at 0x22 (this also caught a
+    //     replication bug that wrote 0x03 there instead)
+    //   * an unaligned LW/SW is performed on the containing word, so LW at
+    //     offset 1 reads all of word 0 and SW at 4095 writes word 1023 whole -
+    //     critically, without wrapping around to corrupt byte 0
+    //
+    // This is a documented deviation from RV32I, which permits straddling
+    // accesses: here they are truncated rather than wrapped or trapped, because a
+    // single-port SRAM cannot write two words in one cycle. See dmem_lanes.v.
+    task test_unaligned;
+        begin
+            $display("\n--- Test 10: Unaligned access contract ---");
+            rst = 1;
+            clear_mem;
+            `IMEM[0]  = 32'h00000093; // ADDI x1, x0, 0      # data base address
+            `IMEM[1]  = 32'h0ab00113; // ADDI x2, x0, 0xAB
+            `IMEM[2]  = 32'h002080a3; // SB   x2, 1(x1)      # mem[1] = AB
+            `IMEM[3]  = 32'h01100113; // ADDI x2, x0, 0x11
+            `IMEM[4]  = 32'h002081a3; // SB   x2, 3(x1)      # mem[3] = 11
+            `IMEM[5]  = 32'h02200113; // ADDI x2, x0, 0x22
+            `IMEM[6]  = 32'h00208223; // SB   x2, 4(x1)      # mem[4] = 22, next word
+            `IMEM[7]  = 32'h03300113; // ADDI x2, x0, 0x33
+            `IMEM[8]  = 32'h002083a3; // SB   x2, 7(x1)      # mem[7] = 33
+            `IMEM[9]  = 32'h0000a183; // LW   x3, 0(x1)      # aligned
+            `IMEM[10] = 32'h0030d203; // LHU  x4, 3(x1)      # half in range only
+            `IMEM[11] = 32'h0010a283; // LW   x5, 1(x1)      # -> containing word
+            `IMEM[12] = 32'h34400113; // ADDI x2, x0, 0x344   # halfword 0x0344
+            `IMEM[13] = 32'h002091a3; // SH   x2, 3(x1)      # only byte 3 is in range
+            `IMEM[14] = 32'h0040c303; // LBU  x6, 4(x1)      # did SH spill here?
+            `IMEM[15] = 32'h7ff00093; // ADDI x1, x0, 2047
+            `IMEM[16] = 32'h7fd08093; // ADDI x1, x1, 2045   # x1 = 4092
+            `IMEM[17] = 32'hdeadb137; // LUI  x2, 0xDEADB
+            `IMEM[18] = 32'h0ef10113; // ADDI x2, x2, 239    # 0xDEADB0EF
+            `IMEM[19] = 32'h0020a1a3; // SW   x2, 3(x1)      # address 4095
+            release_reset;
+            run_cycles(32);
+            check_reg(3, 32'h1100ab00, "LW aligned 0");
+            check_reg(4, 32'h00000011, "LHU top byte");
+            check_reg(5, 32'h1100ab00, "LW unaligned 1");
+            check_reg(6, 32'h00000022, "SH no spill");
+            check_mem_word(12'h000, 32'h4400ab00, "SH low byte lands");
+            check_mem_word(12'hffc, 32'hdeadb0ef, "SW at 4095");
+        end
+    endtask
+
     // ── Main ──────────────────────────────────────────────────────
     initial begin
         // NOTE: iverilog aborts the *whole* simulation if the dump file cannot be
@@ -345,6 +402,7 @@ module core_tb;
         test_upper_imm;
         test_x0;
         test_bge;
+        test_unaligned;
 
         $display("\n========================================");
         if (failed == 0)

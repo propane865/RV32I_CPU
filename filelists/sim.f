@@ -32,5 +32,6 @@ rtl/pipe_mem_wb.v
 # memories: behavioural models (define USE_SRAM_MEMS selects the macro wrappers)
 rtl/mem/imem.v
 rtl/mem/imem_behav.v
+rtl/mem/dmem_lanes.v
 rtl/mem/dmem.v
 rtl/mem/dmem_behav.v

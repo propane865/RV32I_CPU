@@ -4,22 +4,33 @@
 //   sky130_sram_2kbyte_1rw1r_32x512_8
 //   512 words x 32 bits, byte-masked write enable, one RW port + one R port.
 //
-// This exists so the ASIC filelist can be elaborated and linted in CI without
-// pulling in the real PDK models. It is NOT a timing-accurate model.
+// This exists so the ASIC filelist can be elaborated, linted, synthesized and
+// simulated in CI without pulling in the real PDK models. It models port
+// behaviour, not delays - it is not timing accurate.
 //
-// IMPORTANT - read latency. The real macro (and this stub) register their
-// outputs, i.e. dout0/dout1 are valid only AFTER the clock edge that presents
-// the address. Two in-tree wrappers assume otherwise:
-//   * rtl/mem/dmem_sram.v reads the memory combinationally the way the
-//     behavioural rtl/mem/dmem_behav.v does, so a load driven by the macro
-//     lands in MEM/WB one cycle later than it does in simulation.
-//   * rtl/mem/imem_sram.v ties clk1 to 1'b0 and therefore expects an
-//     asynchronous read; a registered port-1 output never updates.
-// Both are design-level issues (they need a pipeline change, not a model
-// change) and are deliberately left out of this refactor. See the notes in the
-// project report.
+// PORT BEHAVIOUR
+//
+//   Port 0 (RW)  clocked. dout0 is valid only after the edge that presents the
+//                address; a read during a write returns the pre-write contents
+//                (real silicon leaves that undefined); a deselected macro keeps
+//                the dout0 it already had.
+//   Port 1 (R)   asynchronous. This is the extra read port that makes the part a
+//                "1rw1r": it has no clock, and clk1 is a layout-only pin. A
+//                deselected port drives x rather than holding, so reading the
+//                wrong half of a banked pair cannot pass silently.
+//
+// An earlier version of this file clocked port 1. That was wrong, and it poisoned
+// everything downstream: rtl/mem/imem_sram.v correctly ties clk1 low for an
+// asynchronous fetch, and rather than the model being fixed, the wrappers grew
+// comments describing a stale-read defect that only ever existed here.
+//
+// What each wrapper expects is stated in rtl/mem/dmem.v and rtl/mem/imem_sram.v;
+// `make mem-agree` checks the behavioural and macro memories really do agree.
 // =============================================================================
 
+// clk1 exists to match the part's pin list; this macro flavour reads port 1
+// asynchronously, so there is nothing for that clock to do.
+/* verilator lint_off UNUSEDSIGNAL */
 module sky130_sram_2kbyte_1rw1r_32x512_8 #(
     parameter DEPTH = 512
 ) (
@@ -39,8 +50,9 @@ module sky130_sram_2kbyte_1rw1r_32x512_8 #(
     input  wire        clk1,
     input  wire        csb1,
     input  wire [8:0]  addr1,
-    output reg  [31:0] dout1
+    output wire [31:0] dout1
 );
+/* verilator lint_on UNUSEDSIGNAL */
     reg [31:0] mem [0:DEPTH-1];
 
     always @(posedge clk0) begin
@@ -55,11 +67,19 @@ module sky130_sram_2kbyte_1rw1r_32x512_8 #(
         end
     end
 
-    always @(posedge clk1) begin
-        if (!csb1) begin
-            dout1 <= mem[addr1];
-        end
-    end
+    // Port 1 is the extra read port that makes this a "1rw1r" macro, and in the
+    // real part it has no clock - it is an asynchronous read, which is the whole
+    // point of having it. clk1 is a layout-only pin on this flavour.
+    //
+    // An earlier version of this stub clocked port 1 with `always @(posedge clk1)`,
+    // which is wrong and poisoned everything downstream: a design that (correctly)
+    // ties clk1 low looked like it was reading a stale word, and the wrappers grew
+    // comments describing a bug that only existed here.
+    //
+    // A deselected port drives x, not a held value: real silicon tri-states, and
+    // staying x is what makes a bank selected the wrong way show up as a mismatch
+    // instead of quietly returning a neighbour's contents.
+    assign dout1 = !csb1 ? mem[addr1] : 32'hx;
 
     // synthesis translate_off
     integer init_i;

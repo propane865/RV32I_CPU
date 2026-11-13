@@ -6,10 +6,14 @@
 // the upper one. The CPU only ever reads instructions, so the RW port of each
 // macro is tied off and the read-only port is the fetch port.
 //
-// CAUTION: clk1 is tied low here, i.e. this assumes port 1 reads asynchronously.
-// The real macro registers dout1, so with the actual silicon this fetch path
-// returns a stale word. See the note in vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v.
-// Left as found: fixing it is a fetch-stage change, not a wrapper change.
+// Fetch uses the read-only port, which on this macro flavour is asynchronous
+// (clk1 is a layout-only pin), so this is a combinational PC -> instruction path
+// exactly like rtl/mem/imem_behav.v: same value, same cycle, nothing to reconcile.
+// The RW port is tied off, with its chip select held high so it stays inactive.
+//
+// csb is active low. Both banks used to be driven with the select the wrong way
+// round, so every fetch from the lower 2 KiB actually enabled the upper macro;
+// nothing in the simulation build could notice, because that build has no macros.
 
     /* verilator lint_off UNUSEDSIGNAL */
     // Same 4 KiB word-addressed decode as the behavioural model.
@@ -48,8 +52,8 @@ module imem_sram(input [31:0] pc, output [31:0] instr);
         .din0  (32'b0),
         .dout0 (),
         // Port 1 (R) - instruction fetch
-        .clk1  (1'b0),
-        .csb1  (~sel_upper),
+        .clk1  (1'b0),          // layout-only pin, port 1 is asynchronous
+        .csb1  (sel_upper),     // active low: deselected when fetching elsewhere
         .addr1 (sram_addr),
         .dout1 (instr_lo)
     );
@@ -64,8 +68,8 @@ module imem_sram(input [31:0] pc, output [31:0] instr);
         .addr0 (9'b0),
         .din0  (32'b0),
         .dout0 (),
-        .clk1  (1'b0),
-        .csb1  (sel_upper),
+        .clk1  (1'b0),          // layout-only pin, port 1 is asynchronous
+        .csb1  (~sel_upper),    // active low: deselected when fetching elsewhere
         .addr1 (sram_addr),
         .dout1 (instr_hi)
     );

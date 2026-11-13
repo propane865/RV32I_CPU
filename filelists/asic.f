@@ -35,6 +35,7 @@ rtl/pipe_mem_wb.v
 # which the Makefile defines for this build)
 rtl/mem/imem.v
 rtl/mem/imem_sram.v
+rtl/mem/dmem_lanes.v
 rtl/mem/dmem.v
 rtl/mem/dmem_sram.v
 vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v
