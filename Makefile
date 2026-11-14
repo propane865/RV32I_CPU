@@ -22,12 +22,6 @@ SIM_F    := filelists/sim.f
 ASIC_F   := filelists/asic.f
 
 BUILD    := build
-# Whether the simulation dumps is a compile-time define, so it has to be part of
-# the executable's name too. With a single shared name, `make sim NODUMP=1`
-# followed by `make waves` considered the binary up to date and re-ran the
-# no-dump build: no waveform, and no warning that one was expected.
-DUMP_MODE := $(if $(NODUMP),nodump,dump)
-VVP_SIM  := $(BUILD)/core-$(DUMP_MODE).vvp
 SIM_LOG  := $(BUILD)/sim.log
 GOLDEN   := regression/golden.txt
 
@@ -39,17 +33,38 @@ GOLDEN   := regression/golden.txt
 VL_FLAGS := --lint-only -Wall -Wno-PINCONNECTEMPTY --top-module rv32i_core
 IV_FLAGS := -g2005 -Wall
 
-# Simulator chatter that is not part of the test verdict (VCD open/close notices)
-# must not reach the golden transcript, or `make check` would disagree with
-# itself depending on whether dumping was enabled.
-FILTER   := sed -e '/^VCD /d'
+# Simulator chatter that is not part of the test verdict must not reach the
+# golden transcript:
+#
+#   VCD open/close notices  - otherwise `make check` disagrees with itself
+#                             depending on whether dumping was enabled.
+#   the $finish notice      - iverilog prints "file:line: $finish called at <t>"
+#                             from 12.0 on, and not at all before that. Left in,
+#                             the transcript is a function of the simulator
+#                             version, so upgrading iverilog would fail the gate
+#                             with no change in behaviour.
+FILTER   := sed -e '/^VCD /d' -e '/$$finish called at /d'
 
-NODUMP   ?= 0
+# Whether the simulation dumps is a compile-time define, so it has to be part of
+# the executable's name too. With a single shared name, `make sim NODUMP=1`
+# followed by `make waves` considered the binary up to date and re-ran the
+# no-dump build: no waveform, and no warning that one was expected.
+#
+# The name and the define are decided by the single test below, so they cannot
+# disagree, and NODUMP is defaulted before the name is expanded. Both matter:
+# `$(if $(NODUMP),nodump,dump)` reads NODUMP=0 as "no dump" - a make condition
+# is true when the string is merely non-empty - so `make waves`, which passes
+# NODUMP=0 down to the recursive sim, named its waveform binary core-nodump.vvp
+# and reused a genuinely no-dump build sitting under that name.
+NODUMP    ?= 0
 ifeq ($(NODUMP),1)
-  IV_DEFS := -DNODUMP
+  IV_DEFS   := -DNODUMP
+  DUMP_MODE := nodump
 else
-  IV_DEFS :=
+  IV_DEFS   :=
+  DUMP_MODE := dump
 endif
+VVP_SIM  := $(BUILD)/core-$(DUMP_MODE).vvp
 
 .PHONY: all sim check baseline lint lint-asic synth synth-asic mem-agree pipe-stats waves dirs clean
 

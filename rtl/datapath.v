@@ -163,6 +163,16 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     // assignment is only sensitive to its arguments, which silently produces stale
     // operands. The select encodings come from defines.vh, so they are interpreted
     // in exactly one place for both operands.
+    // The two forwarding sources that live downstream of this stage. Their
+    // drivers are the staging registers instantiated further down, but they are
+    // declared here because the FWD generate block below reads them: a generate
+    // block scope resolves a name in the enclosing module scope where it is used,
+    // so a net referenced inside the block must already be declared or
+    // elaboration fails (iverilog: "Unable to bind ... declaration after use").
+    // The continuous assignments themselves stay order independent.
+    wire [31:0] ex1ex2_alu_out;   // execute 1 result, one instruction ahead
+    wire [31:0] exmem_alu_out;    // memory  stage result, two ahead
+
     wire [31:0] fwd_lane [0:1];
 
     genvar fwd_lane_ix;
@@ -210,7 +220,8 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .out (ex_alu_out)
     );
 
-    wire [31:0] ex1ex2_alu_out, ex1ex2_rs1_data, ex1ex2_rs2_data;
+    // (ex1ex2_alu_out is declared with the forwarding sources, in stage 3.)
+    wire [31:0] ex1ex2_rs1_data, ex1ex2_rs2_data;
     wire [31:0] ex1ex2_pc, ex1ex2_imm;
     wire [4:0]  ex1ex2_rd;
     wire [2:0]  ex1ex2_branch_cond;
@@ -282,7 +293,8 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .o_pc_plus4   (ex_pc_plus4)
     );
 
-    wire [31:0] exmem_alu_out, exmem_rs2_data, exmem_pc_plus4;
+    // (exmem_alu_out is declared with the forwarding sources, in stage 3.)
+    wire [31:0] exmem_rs2_data, exmem_pc_plus4;
     wire [4:0]  exmem_rd;
     wire [1:0]  exmem_wb_sel, exmem_mem_width;
     wire        exmem_reg_w_ena, exmem_mem_w_ena, exmem_mem_signed;
