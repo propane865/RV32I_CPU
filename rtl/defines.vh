@@ -60,6 +60,14 @@
 // Used to fill flushed pipeline slots; addi x0, x0, 0.
 `define RV_NOP     32'h00000013
 
+// -------------------------------------------------------- core configuration --
+// The address the program counter takes on reset. A define rather than a literal
+// inside rtl/pc.v because where execution starts is a property of the system
+// around the core, not of the pipeline: the compliance harness loads a linked
+// image that begins at the bottom of the instruction memory, and this is the one
+// place that says so.
+`define RESET_PC   32'h0000_0000
+
 // --------------------------------------------------- ALU operation select ----
 // Microarchitecture-internal: control.v emits these, alu.v decodes them. Four
 // bits, because the operation alone must say everything the ALU does: SUB is

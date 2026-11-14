@@ -18,12 +18,15 @@ YOSYS    ?= yosys
 
 RTL_DIR  := rtl
 TB       := tb/core_tb.v
+DIRECTED_TB := tb/directed_tb.v
 SIM_F    := filelists/sim.f
 ASIC_F   := filelists/asic.f
 
 BUILD    := build
 SIM_LOG  := $(BUILD)/sim.log
 GOLDEN   := regression/golden.txt
+DIRECTED_LOG     := $(BUILD)/directed.log
+DIRECTED_GOLDEN  := regression/golden-directed.txt
 
 # Verilator is expected to be silent; -Wall is a hard gate (no -Wno-fatal).
 #
@@ -65,8 +68,9 @@ else
   DUMP_MODE := dump
 endif
 VVP_SIM  := $(BUILD)/core-$(DUMP_MODE).vvp
+DIRECTED_SIM := $(BUILD)/directed.vvp
 
-.PHONY: all sim check baseline lint lint-asic synth synth-asic mem-agree pipe-stats waves dirs clean
+.PHONY: all sim check baseline directed directed-baseline lint lint-asic synth synth-asic mem-agree pipe-stats waves dirs clean
 
 all: lint lint-asic check mem-agree synth synth-asic pipe-stats
 
@@ -108,6 +112,45 @@ baseline: sim
 	@mkdir -p $(dir $(GOLDEN))
 	@cp $(SIM_LOG) $(GOLDEN)
 	@echo "Golden transcript recorded at $(GOLDEN)"
+
+# -------------------------------------------------------------- directed tests --
+#
+# Pipeline-control directed tests: same golden-transcript contract as `check`, in a
+# separate binary because they ask a different question. core_tb asks whether an
+# instruction computes the right value; these ask whether the right instructions
+# execute at all when two control events land in the same cycle. They do not dump
+# waves, so the binary name carries no dump mode.
+$(DIRECTED_SIM): $(DIRECTED_TB) $(SIM_F) $(wildcard $(RTL_DIR)/*.v) $(wildcard $(RTL_DIR)/mem/*.v) | dirs
+	$(IVERILOG) $(IV_FLAGS) -I$(RTL_DIR) -c $(SIM_F) -o $@ $(DIRECTED_TB) -s directed_tb
+
+directed: $(DIRECTED_SIM) | dirs
+	@$(VVP) $< | $(FILTER) > $(DIRECTED_LOG)
+	@if ! grep -qE "ALL DIRECTED TESTS PASSED|DIRECTED TEST\(S\) FAILED" $(DIRECTED_LOG); then \
+		echo "GATE FAIL: no verdict found in $(DIRECTED_LOG) - the testbench did not run."; \
+		tail -5 $(DIRECTED_LOG); exit 1; \
+	fi
+	@if [ ! -f $(DIRECTED_GOLDEN) ]; then \
+		echo "GATE FAIL: no $(DIRECTED_GOLDEN). Run 'make directed-baseline' once you intend to change behaviour."; exit 1; \
+	fi
+	@if diff -u $(DIRECTED_GOLDEN) $(DIRECTED_LOG); then \
+		echo "GATE PASS: behaviour matches $(DIRECTED_GOLDEN)"; \
+	else \
+		echo "GATE FAIL: behaviour differs from $(DIRECTED_GOLDEN)"; exit 1; \
+	fi
+
+directed-baseline: $(DIRECTED_SIM) | dirs
+	@$(VVP) $< | $(FILTER) > $(DIRECTED_LOG)
+	@if ! grep -qE "ALL DIRECTED TESTS PASSED|DIRECTED TEST\(S\) FAILED" $(DIRECTED_LOG); then \
+		echo "REFUSING to record a verdict-less transcript as the golden"; \
+		tail -5 $(DIRECTED_LOG); exit 1; \
+	fi
+	@if grep -qE "FAILED" $(DIRECTED_LOG); then \
+		echo "REFUSING to record a failing run as the golden baseline"; \
+		grep -E "FAIL|FAILED" $(DIRECTED_LOG) | head -20; exit 1; \
+	fi
+	@mkdir -p $(dir $(DIRECTED_GOLDEN))
+	@cp $(DIRECTED_LOG) $(DIRECTED_GOLDEN)
+	@echo "Directed golden transcript recorded at $(DIRECTED_GOLDEN)"
 
 # --------------------------------------------------------------------- lint --
 

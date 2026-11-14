@@ -20,6 +20,12 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire        stall_pc, stall_if_id, flush_if_id, flush_id_ex, flush_ex1_ex2;
     wire [1:0]  forward_a, forward_b;
 
+    // Core stop. Held low until the trap path exists: a trap is detected in
+    // execute 2, one stage after a redirect, and stopping the fetch is the only
+    // thing that keeps a stopped core from putting another instruction in flight.
+    // See rtl/trap_unit.v for the logic that will drive it.
+    wire halt = 1'b0;
+
     // ===============================================Stage 1 - Fetch===========
     wire [31:0] pc_current, pc_target, instr_if;
     wire        pc_src;
@@ -28,6 +34,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .clk      (clk),
         .rst      (rst),
         .stall    (stall_pc),
+        .halt     (halt),
         .pc_src   (pc_src),
         .pc_target(pc_target),
         .pc_out   (pc_current)

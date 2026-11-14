@@ -1,0 +1,28 @@
+
+--- D1: BEQ taken + load-use stall ---
+PASS BEQ+stall target ran     | x7  = 0x00000063
+PASS BEQ+stall skipped        | x8  = 0x00000000
+PASS BEQ+stall no load wr     | x3  = 0x00000000
+PASS BEQ+stall no add wr      | x5  = 0x00000000
+
+--- D2: BNE taken + load-use stall ---
+PASS BNE+stall target ran     | x7  = 0x00000063
+PASS BNE+stall skipped        | x8  = 0x00000000
+PASS BNE+stall no load wr     | x3  = 0x00000000
+
+--- D3: JAL + load-use stall ---
+PASS JAL+stall target ran     | x7  = 0x00000063
+PASS JAL+stall link           | x1  = 0x00000010
+PASS JAL+stall skipped        | x8  = 0x00000000
+PASS JAL+stall no load wr     | x3  = 0x00000000
+
+--- D4: JALR + load-use stall ---
+PASS JALR+stall target ran    | x7  = 0x00000063
+PASS JALR+stall link          | x1  = 0x00000010
+PASS JALR+stall skipped       | x8  = 0x00000000
+PASS JALR+stall no load wr    | x3  = 0x00000000
+
+========================================
+ALL DIRECTED TESTS PASSED
+========================================
+
