@@ -22,11 +22,11 @@ module ks32(input [31:0] a, b, input cin, output [31:0] sum, output cout);
 
     generate
         for (i = 0; i < 32; i = i + 1) begin : stage1
-            if (i == 0) begin
+            if (i == 0) begin : gen_bit0
                 assign g1[i] = g0[i];
                 assign p1[i] = p0[i];
             end
-            else begin
+            else begin : gen_combine
                 assign g1[i] = g0[i] | (p0[i] & g0[i-1]);
                 assign p1[i] = p0[i] & p0[i-1];
             end
@@ -35,11 +35,11 @@ module ks32(input [31:0] a, b, input cin, output [31:0] sum, output cout);
 
     generate
         for (i = 0; i < 32; i = i + 1) begin : stage2
-            if (i < 2) begin
+            if (i < 2) begin : gen_bit0
                 assign g2[i] = g1[i];
                 assign p2[i] = p1[i];
             end
-            else begin
+            else begin : gen_combine
                 assign g2[i] = g1[i] | (p1[i] & g1[i-2]);
                 assign p2[i] = p1[i] & p1[i-2];
             end
@@ -48,11 +48,11 @@ module ks32(input [31:0] a, b, input cin, output [31:0] sum, output cout);
 
     generate
         for (i = 0; i < 32; i = i + 1) begin : stage3
-            if (i < 4) begin
+            if (i < 4) begin : gen_bit0
                 assign g3[i] = g2[i];
                 assign p3[i] = p2[i];
             end
-            else begin
+            else begin : gen_combine
                 assign g3[i] = g2[i] | (p2[i] & g2[i-4]);
                 assign p3[i] = p2[i] & p2[i-4];
             end
@@ -61,11 +61,11 @@ module ks32(input [31:0] a, b, input cin, output [31:0] sum, output cout);
 
     generate
         for (i = 0; i < 32; i = i + 1) begin : stage4
-            if (i < 8) begin
+            if (i < 8) begin : gen_bit0
                 assign g4[i] = g3[i];
                 assign p4[i] = p3[i];
             end
-            else begin
+            else begin : gen_combine
                 assign g4[i] = g3[i] | (p3[i] & g3[i-8]);
                 assign p4[i] = p3[i] & p3[i-8];
             end
@@ -74,11 +74,11 @@ module ks32(input [31:0] a, b, input cin, output [31:0] sum, output cout);
 
     generate
         for (i = 0; i < 32; i = i + 1) begin : stage5
-            if (i < 16) begin
+            if (i < 16) begin : gen_bit0
                 assign g5[i] = g4[i];
                 assign p5[i] = p4[i];
             end
-            else begin
+            else begin : gen_combine
                 assign g5[i] = g4[i] | (p4[i] & g4[i-16]);
                 assign p5[i] = p4[i] & p4[i-16];
             end
