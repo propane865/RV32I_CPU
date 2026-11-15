@@ -17,7 +17,7 @@
 // bit 5 of it (SUB vs ADD, SRA vs SRL); narrowing the port to one bit would hide
 // which instruction field it came from.
 /* verilator lint_off UNUSEDSIGNAL */
-module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_signed, cmp_sgn, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
+module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_r_ena, mem_signed, cmp_sgn, uses_rs1, uses_rs2, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
 /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
@@ -31,10 +31,26 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
         alu_src_a = `ALU_A_RS1;
         reg_w_ena = 0;
         mem_w_ena = 0;
+        // A load is the one instruction that writes a register from memory data,
+        // and several stages need to know that: the hazard unit waits for it, and
+        // the forwarding paths must never try to produce its value early. Saying
+        // so here, at the point where the opcode is decoded, is what stops each
+        // of them inventing its own test for "is this a load".
+        mem_r_ena = 0;
         mem_width = `MEM_W;
         mem_signed = 0;
         wb_sel = `WB_ALU;
         branch = 0;
+
+        // Which source registers this instruction actually reads. The hazard unit
+        // needs these to avoid waiting for a register nobody reads: without them,
+        // `lw x1, 0(x2)` followed by `lui x1, 0` looks like a dependency on x1 even
+        // though LUI reads nothing at all, and every I-type instruction looks
+        // dependent on its (unused) rs2 field. They describe the instruction, not
+        // the operand values, so they cost nothing to produce here and need no
+        // pipeline field - the consumer is always in decode, next to them.
+        uses_rs1 = 0;
+        uses_rs2 = 0;
         jump = 0;
         jalr = 0;
         imm_sel = `IMM_I;
@@ -51,6 +67,9 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
             // -----------------------------------------------------------------
             `RV_OP, `RV_OP_IMM: begin
                 reg_w_ena = 1;
+                // R-type reads both operands; register-immediate reads only rs1.
+                uses_rs1 = 1;
+                uses_rs2 = (opcode == `RV_OP);
                 // The only real difference between the two opcodes.
                 alu_src   = (opcode == `RV_OP) ? 1'b0 : 1'b1;
                 imm_sel   = `IMM_I;
@@ -92,7 +111,11 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
             `RV_LOAD: begin
                 // Enable register writing, ALU input B is from the immediate
                 reg_w_ena = 1;
+                uses_rs1 = 1;          // base address only
                 alu_src = 1;
+
+                // The memory stage reads, and does not write, on this one
+                mem_r_ena = 1;
 
                 // Set ALU to ADD to compute the memory read address (rs1 + imm)
                 alu_op = `ALU_ADD;
@@ -114,6 +137,8 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
             `RV_STORE: begin
                 // Enable register writing, ALU input B is from the immediate
                 mem_w_ena = 1;
+                uses_rs1 = 1;          // base address
+                uses_rs2 = 1;          // stored value
                 alu_src = 1;
 
                 // Set ALU to ADD to compute the memory write address (rs1 + imm)
@@ -130,6 +155,8 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
             `RV_BRANCH: begin
                 // Enable CPU branching
                 branch = 1;
+                uses_rs1 = 1;
+                uses_rs2 = 1;
 
                 // Tell the comparator which comparison this branch wants.
                 // funct3[1] is the signed flag across the four ordering forms:
@@ -201,6 +228,7 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
             `RV_JALR: begin
                 // Enable register writing
                 reg_w_ena = 1;
+                uses_rs1 = 1;          // the target base
 
                 // Allow program counter to be rewritten to a target value
                 jump = 1;

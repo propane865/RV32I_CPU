@@ -25,6 +25,7 @@ module pipe_id_ex (
     input  wire        i_cmp_sgn,
     input  wire        i_reg_w_ena,
     input  wire        i_mem_w_ena,
+    input  wire        i_mem_r_ena,
     input  wire        i_mem_signed,
     input  wire        i_branch,
     input  wire        i_jump,
@@ -46,6 +47,7 @@ module pipe_id_ex (
     output wire        o_cmp_sgn,
     output wire        o_reg_w_ena,
     output wire        o_mem_w_ena,
+    output wire        o_mem_r_ena,
     output wire        o_mem_signed,
     output wire        o_branch,
     output wire        o_jump,
@@ -59,16 +61,16 @@ module pipe_id_ex (
     `include "defines.vh"
 
     // Payload width, spelled out so PACK / UNPACK / BUBBLE cannot drift apart
-    // silently: 4 words, 3 register addresses, 8 single-bit controls, 3 two-bit
+    // silently: 4 words, 3 register addresses, 9 single-bit controls, 3 two-bit
     // selects, one 4-bit ALU op and one 3-bit branch condition.
-    localparam integer W = 32*4 + 5*3 + 8 + 2*3 + 4 + 3;
+    localparam integer W = 32*4 + 5*3 + 9 + 2*3 + 4 + 3;
 
     // A flushed slot writes nothing anywhere. mem_width is preset to a full word
     // so that a stray enable could never turn into a partial store.
     localparam [W-1:0] BUBBLE = {
         32'h0, 32'h0, 32'h0, 32'h0,          // pc, rs1_data, rs2_data, imm
         5'h0, 5'h0, 5'h0,                    // rs1, rs2, rd
-        8'h0,                                // the 8 single-bit controls
+        9'h0,                                // the 9 single-bit controls
         `WB_ALU, `MEM_W, `ALU_A_RS1,         // wb_sel, mem_width, alu_src_a
         `ALU_ADD, `RV_F3_BEQ                 // alu_op (4b), branch_cond
     };
@@ -78,7 +80,7 @@ module pipe_id_ex (
         i_pc, i_rs1_data, i_rs2_data, i_imm,
         i_rs1, i_rs2, i_rd,
         i_alu_src, i_cmp_sgn,
-        i_reg_w_ena, i_mem_w_ena, i_mem_signed, i_branch, i_jump, i_jalr,
+        i_reg_w_ena, i_mem_w_ena, i_mem_r_ena, i_mem_signed, i_branch, i_jump, i_jalr,
         i_wb_sel, i_mem_width, i_alu_src_a,
         i_alu_op, i_branch_cond
     };
@@ -92,7 +94,7 @@ module pipe_id_ex (
     assign { o_pc, o_rs1_data, o_rs2_data, o_imm,
              o_rs1, o_rs2, o_rd,
              o_alu_src, o_cmp_sgn,
-             o_reg_w_ena, o_mem_w_ena, o_mem_signed, o_branch, o_jump, o_jalr,
+             o_reg_w_ena, o_mem_w_ena, o_mem_r_ena, o_mem_signed, o_branch, o_jump, o_jalr,
              o_wb_sel, o_mem_width, o_alu_src_a,
              o_alu_op, o_branch_cond } = q;
 endmodule

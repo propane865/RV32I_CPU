@@ -20,6 +20,7 @@ module pipe_ex1_ex2 (
     input  wire [4:0]  i_rd,
     input  wire        i_reg_w_ena,
     input  wire        i_mem_w_ena,
+    input  wire        i_mem_r_ena,
     input  wire        i_mem_signed,
     input  wire        i_jump,
     input  wire        i_jalr,
@@ -39,6 +40,7 @@ module pipe_ex1_ex2 (
     output wire [4:0]  o_rd,
     output wire        o_reg_w_ena,
     output wire        o_mem_w_ena,
+    output wire        o_mem_r_ena,
     output wire        o_mem_signed,
     output wire        o_jump,
     output wire        o_jalr,
@@ -52,16 +54,16 @@ module pipe_ex1_ex2 (
 );
     `include "defines.vh"
 
-    // 5 words, 1 register address (the write destination), 9 single-bit controls
-    // (6 control + 3 comparison flags), 2 two-bit selects, 1 three-bit branch
+    // 5 words, 1 register address (the write destination), 10 single-bit controls
+    // (7 control + 3 comparison flags), 2 two-bit selects, 1 three-bit branch
     // condition. The source register numbers are NOT carried: forwarding decides
     // what the operands are in execute 1, and nothing downstream re-decodes them.
-    localparam integer W = 32*5 + 5 + 9 + 2*2 + 3;
+    localparam integer W = 32*5 + 5 + 10 + 2*2 + 3;
 
     localparam [W-1:0] BUBBLE = {
         32'h0, 32'h0, 32'h0, 32'h0, 32'h0,  // alu_out, rs1_data, rs2_data, pc, imm
         5'h0,                                // rd
-        9'h0,                                // 6 control bits + gt, lt, eq
+        10'h0,                               // 7 control bits + gt, lt, eq
         `WB_ALU, `MEM_W,                     // wb_sel, mem_width
         `RV_F3_BEQ                           // branch_cond
     };
@@ -70,7 +72,7 @@ module pipe_ex1_ex2 (
     wire [W-1:0] pack = {
         i_alu_out, i_rs1_data, i_rs2_data, i_pc, i_imm,
         i_rd,
-        i_reg_w_ena, i_mem_w_ena, i_mem_signed, i_jump, i_jalr, i_branch,
+        i_reg_w_ena, i_mem_w_ena, i_mem_r_ena, i_mem_signed, i_jump, i_jalr, i_branch,
         i_gt, i_lt, i_eq,
         i_wb_sel, i_mem_width,
         i_branch_cond
@@ -84,7 +86,7 @@ module pipe_ex1_ex2 (
 
     assign { o_alu_out, o_rs1_data, o_rs2_data, o_pc, o_imm,
              o_rd,
-             o_reg_w_ena, o_mem_w_ena, o_mem_signed, o_jump, o_jalr, o_branch,
+             o_reg_w_ena, o_mem_w_ena, o_mem_r_ena, o_mem_signed, o_jump, o_jalr, o_branch,
              o_gt, o_lt, o_eq,
              o_wb_sel, o_mem_width,
              o_branch_cond } = q;

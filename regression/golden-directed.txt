@@ -1,4 +1,7 @@
 
+--- D0: instruction encoders vs the assembler ---
+PASS encoders                    | all 18 match
+
 --- D1: BEQ taken + load-use stall ---
 PASS BEQ+stall target ran     | x7  = 0x00000063
 PASS BEQ+stall skipped        | x8  = 0x00000000
@@ -21,6 +24,80 @@ PASS JALR+stall target ran    | x7  = 0x00000063
 PASS JALR+stall link          | x1  = 0x00000010
 PASS JALR+stall skipped       | x8  = 0x00000000
 PASS JALR+stall no load wr    | x3  = 0x00000000
+PASS alu_r rs1      d0 | x7  = 0x00000144
+PASS alu_r rs2      d0 | x7  = 0x00000144
+PASS alu_i rs1      d0 | x7  = 0x00000127
+PASS lw rs1         d0 | x7  = 0x0000abef
+PASS lw rs2         d0 | x7  = 0x0000abef
+PASS lh rs1         d0 | x7  = 0xffffabef
+PASS lbu rs1        d0 | x7  = 0x000000ef
+PASS lui rs1        d0 | x7  = 0x0000b022
+PASS auipc rs1      d0 | x7  = 0x00001042
+PASS lw st-data     d0 | mem[0x0400] = 0x0000abcd
+PASS neg slt        d0 | x7  = 0x00000001
+PASS lw slt         d0 | x7  = 0x00000000
+PASS alu_r rs1      d1 | x7  = 0x00000144
+PASS alu_r rs2      d1 | x7  = 0x00000144
+PASS alu_i rs1      d1 | x7  = 0x00000127
+PASS lw rs1         d1 | x7  = 0x0000abef
+PASS lw rs2         d1 | x7  = 0x0000abef
+PASS lh rs1         d1 | x7  = 0xffffabef
+PASS lbu rs1        d1 | x7  = 0x000000ef
+PASS lui rs1        d1 | x7  = 0x0000b022
+PASS auipc rs1      d1 | x7  = 0x00001042
+PASS lw st-data     d1 | mem[0x0400] = 0x0000abcd
+PASS neg slt        d1 | x7  = 0x00000001
+PASS lw slt         d1 | x7  = 0x00000000
+PASS alu_r rs1      d2 | x7  = 0x00000144
+PASS alu_r rs2      d2 | x7  = 0x00000144
+PASS alu_i rs1      d2 | x7  = 0x00000127
+PASS lw rs1         d2 | x7  = 0x0000abef
+PASS lw rs2         d2 | x7  = 0x0000abef
+PASS lh rs1         d2 | x7  = 0xffffabef
+PASS lbu rs1        d2 | x7  = 0x000000ef
+PASS lui rs1        d2 | x7  = 0x0000b022
+PASS auipc rs1      d2 | x7  = 0x00001042
+PASS lw st-data     d2 | mem[0x0400] = 0x0000abcd
+PASS neg slt        d2 | x7  = 0x00000001
+PASS lw slt         d2 | x7  = 0x00000000
+PASS alu_r rs1      d3 | x7  = 0x00000144
+PASS alu_r rs2      d3 | x7  = 0x00000144
+PASS alu_i rs1      d3 | x7  = 0x00000127
+PASS lw rs1         d3 | x7  = 0x0000abef
+PASS lw rs2         d3 | x7  = 0x0000abef
+PASS lh rs1         d3 | x7  = 0xffffabef
+PASS lbu rs1        d3 | x7  = 0x000000ef
+PASS lui rs1        d3 | x7  = 0x0000b022
+PASS auipc rs1      d3 | x7  = 0x00001042
+PASS lw st-data     d3 | mem[0x0400] = 0x0000abcd
+PASS neg slt        d3 | x7  = 0x00000001
+PASS lw slt         d3 | x7  = 0x00000000
+PASS ptr-alu ld     d0 | x7  = 0x0000abcd
+PASS ptr-lw st      d0 | mem[0x0400] = 0x00000022
+PASS ptr-alu st     d0 | mem[0x0400] = 0x00000022
+PASS ptr-lw st-data d0 | mem[0x0400] = 0x00000400
+PASS ptr-alu ld     d1 | x7  = 0x0000abcd
+PASS ptr-lw st      d1 | mem[0x0400] = 0x00000022
+PASS ptr-alu st     d1 | mem[0x0400] = 0x00000022
+PASS ptr-lw st-data d1 | mem[0x0400] = 0x00000400
+PASS ptr-alu ld     d2 | x7  = 0x0000abcd
+PASS ptr-lw st      d2 | mem[0x0400] = 0x00000022
+PASS ptr-alu st     d2 | mem[0x0400] = 0x00000022
+PASS ptr-lw st-data d2 | mem[0x0400] = 0x00000400
+PASS ptr-alu ld     d3 | x7  = 0x0000abcd
+PASS ptr-lw st      d3 | mem[0x0400] = 0x00000022
+PASS ptr-alu st     d3 | mem[0x0400] = 0x00000022
+PASS ptr-lw st-data d3 | mem[0x0400] = 0x00000400
+PASS jal link value           | x5  = 0x00000024
+PASS jal link d1              | x7  = 0x00000046
+PASS jal link d2              | x10 = 0x00000046
+PASS jal link d3              | x11 = 0x00000046
+PASS jal link d4              | x12 = 0x00000046
+PASS jalr link value          | x5  = 0x00000024
+PASS jalr link d1             | x7  = 0x00000046
+PASS jalr link d2             | x10 = 0x00000046
+PASS jalr link d3             | x11 = 0x00000046
+PASS jalr link d4             | x12 = 0x00000046
 
 ========================================
 ALL DIRECTED TESTS PASSED

@@ -4,11 +4,17 @@
 // Three candidate producers, checked newest first, because the most recent write
 // is the one whose value the younger instruction needs:
 //
-//   FWD_EX1    execute 1 result, from the instruction one stage ahead
-//   FWD_EXMEM  execute 1 result, two stages ahead
-//   FWD_MEMWB  writeback value, three stages ahead (a load's read data only
-//              exists this late, which is why the oldest stage is still needed)
+//   FWD_EX1    the instruction one stage ahead (execute 2)
+//   FWD_EXMEM  the instruction two stages ahead (memory)
+//   FWD_MEMWB  the instruction three stages ahead (writeback). This is the only
+//              stage a load can be forwarded from: its read data is a flop in the
+//              memory and first exists during the load's own writeback cycle.
 //   FWD_NONE   the register file value is already correct
+//
+// This unit decides only *which* producer; what each one's value actually is
+// (ALU result, link address, load data) is decided by the forwarding mux in
+// rtl/datapath.v from the producer's writeback select, and rtl/hazard_unit.v is
+// what guarantees a load is never asked for before FWD_MEMWB can supply it.
 //
 // rd == 0 never forwards: x0 is architecturally zero, and forwarding one would
 // hand an operand a value the ISA says must not exist. The register file already
