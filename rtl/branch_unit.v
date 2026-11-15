@@ -72,7 +72,16 @@ module branch_unit (
         .cout ()
     );
 
-    // JALR clears bit 0 of the target; branch and JAL offsets are already even.
+    // JALR clears bit 0 of the sum; branch and JAL offsets are already even.
+    //
+    // The order between this line and the instruction-address-misaligned check in
+    // rtl/trap_unit.v is not free: the mask has to happen first, because what the
+    // architecture defines as the target is the masked sum. Checking the unmasked
+    // sum would raise cause 0 on `jalr rs1, 1(rs2)`, which is a perfectly legal
+    // instruction whenever rs1 is even. tb/directed_tb.v D7 pins both orders - the
+    // +1 form must not report anything, the +3 form must report cause 0 - because
+    // getting this backwards traps on legal code, which no amount of failing tests
+    // on other things would reveal.
     assign o_target   = i_jalr ? (jalr_target & ~32'b1) : branch_target;
     assign o_pc_plus4 = i_pc + 32'h4;
 endmodule

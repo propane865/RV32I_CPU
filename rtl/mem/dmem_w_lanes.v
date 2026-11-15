@@ -32,9 +32,17 @@
 // bit for bit and the behavioural simulation is testing the hardware that will
 // actually be built - rather than simulating a memory the ASIC cannot be.
 //
-// This core does not detect a straddling access: it performs a truncated one.
-// Whether the core should stop and report one is an exception question, not a
-// storage question, and is answered outside these two files.
+// What is left of the straddling question, after the exception path answered it.
+//
+// This file still resolves a straddling access to a truncated one, because that is
+// what one port can do. It no longer has to worry about when that happens: a
+// halfword access is legal only at an even address and a word only at a
+// multiple of four (rtl/control.v rejects the other encodings as illegal,
+// rtl/trap_unit.v raises load-address-misaligned or store-address-misaligned for
+// the ones that are legal but badly aligned), so the highest legal word store starts
+// at the last word of memory and no legal access can reach past it. A straddle is
+// now unreachable by definition rather than by luck, and the truncation logic here
+// is what makes that definition cheap to hold to.
 //
 // WHY THIS IS THE STORE SIDE
 //

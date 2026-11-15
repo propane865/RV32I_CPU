@@ -333,27 +333,6 @@ module core_tb;
         end
     endtask
 
-    // Test 10: unaligned sub-word accesses - the memory system's contract.
-    //
-    // The rule both data memories implement (rtl/mem/dmem_w_lanes.v) is that an
-    // access is confined to the word containing its address: an access never
-    // reaches into the neighbouring word. These checks pin that down, including
-    // the cases where the old behavioural model and the sky130 macros disagreed:
-    //
-    //   * byte accesses are exact at every offset - one byte never straddles,
-    //     and an unaligned SB is visible to the aligned LW that covers it
-    //   * LHU at offset 3 reads only the word's top byte (0x0011); the old
-    //     byte-addressed model reached next door and returned 0x2211
-    //   * LH / SH keep the value with the address: SH 0x0344 at offset 3 puts
-    //     0x44 in byte 3 and leaves byte 4 at 0x22 (this also caught a
-    //     replication bug that wrote 0x03 there instead)
-    //   * an unaligned LW/SW is performed on the containing word, so LW at
-    //     offset 1 reads all of word 0 and SW at 4095 writes word 1023 whole -
-    //     critically, without wrapping around to corrupt byte 0
-    //
-    // This is a documented deviation from RV32I, which permits straddling
-    // accesses: here they are truncated rather than wrapped or trapped, because a
-    // single-port SRAM cannot write two words in one cycle. See dmem_w_lanes.v.
     // Test 10: sub-word placement, on the addresses the architecture permits.
     //
     // This test used to pin something the architecture does not permit. It stored
@@ -364,6 +343,14 @@ module core_tb;
     // truncation cases are gone and what is left is the part that always needed
     // pinning and never got it properly: on an aligned access, does each width put
     // its bytes in the lanes it should, and leave every lane it should not alone.
+    //
+    // Two of the lane bugs this test area has caught in the past came from
+    // misaligned cases that no longer exist: LHU at offset 3 reading the
+    // neighbouring word instead of the top byte, and an SB replicating its byte
+    // into the wrong lane. Both are unreachable now, because an access at such an
+    // address is an exception before it is a memory operation (rtl/trap_unit.v,
+    // tb/directed_tb.v D7). The aligned checks below are what keep those same lanes
+    // pinned, which is why they check the neighbours as well as the accessed bytes.
     //
     // Byte lanes are where a store's write mask is derived from funct3 and the two
     // low address bits, and the read side reassembles fields from the same pair, so

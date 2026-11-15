@@ -270,6 +270,20 @@ module datapath(
     // the ALU output, so a forward that ignored wb_sel handed the consumer the sum
     // of two arbitrary operands instead of the link address.
     //
+    // Both arms above are unreachable for a jump producer, and it is worth saying
+    // why, because the code looks like it is handling a case nothing tests. A taken
+    // JAL/JALR redirects the fetch and flushes IF/ID and ID/EX, so the next
+    // instruction to reach execute 1 is the target - at least two cycles after the
+    // jump resolved - which is by then served by FWD_MEMWB or the register file. An
+    // experiment that replaced these two arms with the plain ALU result left every
+    // directed test, including the JAL/JALR link sweep, passing: what pins the link
+    // value is the write-back arm, not these.
+    //
+    // They are kept because they cost nothing and because "this mux cannot be asked"
+    // is a property of the hazard and flush logic two files away, not of this line -
+    // and unlike the load case below, the value they would supply is the right one if
+    // that property ever changed.
+    //
     // The load case is marked impossible rather than given a value. A load's data
     // does not exist this early - see rtl/hazard_unit.v, whose stall is exactly what
     // guarantees no forwarding select can ask for it - and returning the ALU

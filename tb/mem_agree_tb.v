@@ -20,9 +20,9 @@
 //
 // The sub-word rules are not part of the comparison, deliberately:
 // dmem_w_lanes.v and dmem_r_lanes.v compute them once for both models, so
-// agreeing there is structural rather than observed. What is compared is the storage those rules are applied to - which is
-// where the two implementations are independently written and where they can
-// actually differ.
+// agreeing there is structural rather than observed. What is compared is the
+// storage those rules are applied to - which is where the two implementations are
+// independently written and where they can actually differ.
 //
 // INSTRUCTION MEMORY. Both read asynchronously (the macro's port 1 is a
 // combinational read), so the comparison is same-cycle there too. It exists
