@@ -40,10 +40,24 @@ module rv32i_core(
     output        trap,
     output [`TRAP_CAUSE_W-1:0] trap_cause,
     output [31:0] trap_pc
+    `ifdef USE_POWER_PINS
+    // The chip's supply nets, and the only place the flow's power grid attaches.
+    // They exist solely to give the SRAM macros' power pins a named net to hang
+    // off: a net the elaborator folds into a constant would be resolved to some
+    // unrelated wire by Odb.SetPowerConnections. Nothing here drives or reads
+    // them, so the simulation builds - which do not define USE_POWER_PINS - have
+    // no such ports at all, and a testbench that does build with them leaves
+    // them unconnected without consequence.
+    `PWR_PORTS
+    `endif
 );
     `include "defines.vh"
 
     datapath DP(
+        `ifdef USE_POWER_PINS
+        .VPWR   (VPWR),
+        .VGND   (VGND),
+        `endif
         .clk    (clk),
         .rst    (rst),
         .pc_out (pc_out),

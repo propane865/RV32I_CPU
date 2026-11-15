@@ -21,23 +21,21 @@
 // from the live bank - the one that is actually enabled this cycle - and never
 // from a delayed copy of it.
 
+`include "defines.vh"
+
     /* verilator lint_off UNUSEDSIGNAL */
     // Same 8 KiB word-addressed decode as the behavioural model.
-module imem_sram(input [31:0] pc, output [31:0] instr);
+module imem_sram(input [31:0] pc, output [31:0] instr
+    `ifdef USE_POWER_PINS
+                 `PWR_PORTS
+    `endif
+                 );
     /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
-`ifdef USE_POWER_PINS
-    // The PDK macro carries power pins that only exist in the post-layout
-    // netlist. They are declared here rather than being passed up through
-    // imem/datapath/rv32i_core, because in the OpenLane flow the power grid is
-    // attached to the chip top, not threaded through every functional module.
-    // Declaring them as supply nets keeps the build elaborable and makes the
-    // intent explicit; previously these names were never declared at all, so
-    // each USE_POWER_PINS build silently invented two implicit 1-bit wires.
-    supply1 vccd1;
-    supply0 vssd1;
-`endif
+    // The macro's power pins arrive as ports, threaded up through imem/datapath
+    // to the chip top, because that is the net the flow's power grid is built on
+    // (see `PWR_PORTS in defines.vh for why they cannot be local supply nets).
 
     wire [10:0] word_addr = pc[12:2];
     wire [1:0]  bank      = word_addr[10:9];  // which macro holds this word

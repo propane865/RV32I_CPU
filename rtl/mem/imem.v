@@ -27,9 +27,21 @@
 // outside 8 KiB does not fault, it is masked, so a program that overran this memory
 // would fetch from its own beginning. tb/elf2hex.py is the thing that refuses such
 // a build; nothing at run time could report one.
-module imem(input [31:0] pc, output [31:0] instr);
+`include "defines.vh"
+
+module imem(input [31:0] pc, output [31:0] instr
+    `ifdef USE_POWER_PINS
+            `PWR_PORTS
+    `endif
+            );
 `ifdef USE_SRAM_MEMS
-    imem_sram IMPL(.pc(pc), .instr(instr));
+    // Power pins only pass through the macro build: the behavioural model has no
+    // such pins, so the behavioural branch leaves them alone.
+    imem_sram IMPL(
+        `ifdef USE_POWER_PINS
+        .VPWR(VPWR), .VGND(VGND),
+        `endif
+        .pc(pc), .instr(instr));
 `else
     imem_behav IMPL(.pc(pc), .instr(instr));
 `endif

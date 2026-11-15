@@ -34,6 +34,11 @@ module datapath(
     output        trap,
     output [`TRAP_CAUSE_W-1:0] trap_cause,
     output [31:0] trap_pc
+    `ifdef USE_POWER_PINS
+    // Straight through to the two memories: the core top is where the flow's
+    // power grid attaches, so nothing here consumes these.
+    `PWR_PORTS
+    `endif
 );
     `include "defines.vh"
 
@@ -85,7 +90,11 @@ module datapath(
         .pc_out   (pc_current)
     );
 
-    imem IMEM(.pc(pc_current), .instr(instr_if));
+    imem IMEM(
+        `ifdef USE_POWER_PINS
+        .VPWR(VPWR), .VGND(VGND),
+        `endif
+        .pc(pc_current), .instr(instr_if));
 
     wire [31:0] ifid_pc, ifid_instr;
 
@@ -554,6 +563,9 @@ module datapath(
     wire [31:0] mem_rdata;
 
     dmem DMEM(
+        `ifdef USE_POWER_PINS
+        .VPWR   (VPWR), .VGND  (VGND),
+        `endif
         .clk      (clk), .w_ena (exmem_mem_w_ena),
         .width    (exmem_mem_width), .is_signed (exmem_mem_signed),
         .addr     (exmem_alu_out),

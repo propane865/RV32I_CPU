@@ -1,0 +1,82 @@
+{
+    "DESIGN_NAME": "rv32i_core",
+
+    "PDK": "sky130A",
+    "STD_CELL_LIBRARY": "sky130_fd_sc_hd",
+
+    "VERILOG_FILES": [
+        "dir::rtl/rv32i_core.v",
+        "dir::rtl/alu.v",
+        "dir::rtl/branch_unit.v",
+        "dir::rtl/comp32.v",
+        "dir::rtl/control.v",
+        "dir::rtl/datapath.v",
+        "dir::rtl/decoder.v",
+        "dir::rtl/forwarding_unit.v",
+        "dir::rtl/hazard_unit.v",
+        "dir::rtl/imm_gen.v",
+        "dir::rtl/ks32.v",
+        "dir::rtl/pc.v",
+        "dir::rtl/pipe_ex_mem.v",
+        "dir::rtl/pipe_ex1_ex2.v",
+        "dir::rtl/pipe_id_ex.v",
+        "dir::rtl/pipe_if_id.v",
+        "dir::rtl/pipe_mem_wb.v",
+        "dir::rtl/regfile.v",
+        "dir::rtl/shifter.v",
+        "dir::rtl/trap_unit.v",
+
+        "dir::rtl/mem/dmem.v",
+        "dir::rtl/mem/dmem_r_lanes.v",
+        "dir::rtl/mem/dmem_sram.v",
+        "dir::rtl/mem/dmem_w_lanes.v",
+        "dir::rtl/mem/imem.v",
+        "dir::rtl/mem/imem_sram.v"
+    ],
+
+    "VERILOG_INCLUDE_DIRS": [
+        "dir::rtl"
+    ],
+
+    "VERILOG_DEFINES": [
+        "USE_SRAM_MEMS"
+    ],
+
+    "CLOCK_PORT": "clk",
+    "CLOCK_PERIOD": 50,
+
+    "STA_CORNERS": ["nom_tt_025C_1v80"],
+
+    "FP_SIZING": "relative",
+    "FP_CORE_UTIL": 35,
+    "PL_TARGET_DENSITY_PCT": 45,
+
+    "MACROS": {
+        "sky130_sram_2kbyte_1rw1r_32x512_8": {
+            "lef": [
+                "dir::macros/sky130_sram_2kbyte_1rw1r_32x512_8/lef/sky130_sram_2kbyte_1rw1r_32x512_8.lef"
+            ],
+            "gds": [
+                "dir::macros/sky130_sram_2kbyte_1rw1r_32x512_8/gds/sky130_sram_2kbyte_1rw1r_32x512_8.gds"
+            ],
+            "nl": [
+                "dir::macros/sky130_sram_2kbyte_1rw1r_32x512_8/nl/sky130_sram_2kbyte_1rw1r_32x512_8.v"
+            ],
+            "lib": {
+                "nom_tt_025C_1v80": [
+                    "dir::macros/sky130_sram_2kbyte_1rw1r_32x512_8/lib/sky130_sram_2kbyte_1rw1r_32x512_8_TT_1p8V_25C.lib"
+                ]
+            },
+            "instances": {
+                "DP.DMEM.IMPL.sram0": {"location": [5.52, 10.88], "orientation": "R0"},
+                "DP.DMEM.IMPL.sram1": {"location": [698.74, 10.88], "orientation": "R0"},
+                "DP.DMEM.IMPL.sram2": {"location": [1391.96, 10.88], "orientation": "R0"},
+                "DP.DMEM.IMPL.sram3": {"location": [5.52, 437.92], "orientation": "R0"},
+                "DP.IMEM.IMPL.sram0": {"location": [698.74, 437.92], "orientation": "R0"},
+                "DP.IMEM.IMPL.sram1": {"location": [1391.96, 437.92], "orientation": "R0"},
+                "DP.IMEM.IMPL.sram2": {"location": [5.52, 864.96], "orientation": "R0"},
+                "DP.IMEM.IMPL.sram3": {"location": [698.74, 864.96], "orientation": "R0"}
+            }
+        }
+    }
+}

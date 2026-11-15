@@ -21,25 +21,23 @@
 // one-cycle contract to the pipeline. Nothing here is a cycle early or late
 // relative to the model the ASIC is built from - that agreement is what
 // `make mem-agree` checks, cycle for cycle.
+`include "defines.vh"
+
     /* verilator lint_off UNUSEDSIGNAL */
     // Same 8 KiB decode as the behavioural model: addr[12:0] selects, the rest is
     // ignored rather than checked (there is no fault response to issue).
 module dmem_sram(input clk, w_ena, input [3:0] w_strb, input [31:0] w_lanes,
-                 input [31:0] addr, output [31:0] rdata);
+                 input [31:0] addr, output [31:0] rdata
+    `ifdef USE_POWER_PINS
+                 `PWR_PORTS
+    `endif
+                 );
     /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
-`ifdef USE_POWER_PINS
-    // The PDK macro carries power pins that only exist in the post-layout
-    // netlist. They are declared here rather than being passed up through
-    // dmem/datapath/rv32i_core, because in the OpenLane flow the power grid is
-    // attached to the chip top, not threaded through every functional module.
-    // Declaring them as supply nets keeps the build elaborable and makes the
-    // intent explicit; previously these names were never declared at all, so
-    // each USE_POWER_PINS build silently invented two implicit 1-bit wires.
-    supply1 vccd1;
-    supply0 vssd1;
-`endif
+    // The macro's power pins arrive as ports, threaded up through dmem/datapath
+    // to the chip top, because that is the net the flow's power grid is built on
+    // (see `PWR_PORTS in defines.vh for why they cannot be local supply nets).
 
     wire [10:0] word_addr = addr[12:2];
     wire [1:0]  bank      = word_addr[10:9]; // which macro holds this word

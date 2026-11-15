@@ -160,14 +160,32 @@
 `define FWD_EX1    2'd3   // youngest writer, wins ties
 
 // ------------------------------------------------- sky130 macro power pins --
-// The SRAM macros carry power pins that only exist in the PDK netlist. Including
-// them in the port list is switched on with +define+USE_POWER_PINS, and both
-// wrappers need the identical spelling, so it lives here rather than being
-// copy-pasted into each one (the original copy in each file also defined an
-// unused PWR_PINS companion macro).
+// The SRAM macros carry power pins that exist only in the PDK view. Switched on
+// with +define+USE_POWER_PINS, they need the identical spelling in six modules -
+// the two macro wrappers, the two memory selectors, datapath and the core top -
+// and a wrapper that renames or drops one does not fail to elaborate: it invents
+// an implicit 1-bit wire and the macro pin ends up bound to whatever the
+// elaborator picked. Writing both spellings once, here, is what makes the six
+// agree by construction. (A `define a *port list* depends on also has to be
+// included above that module's header, not inside its body - see rv32i_core.v.)
+//
+// VPWR and VGND are not arbitrary names: they are the nets the flow builds its
+// power grid on. With VDD_NETS/GND_NETS unset, LibreLane's set_power_nets.tcl
+// falls back to VDD_PIN/GND_PIN, which for sky130_fd_sc_hd are VPWR/VGND, and
+// Odb.SetPowerConnections takes the net name straight out of the netlist - so the
+// macro pins join the grid only if the RTL net is called that as well.
+//
+// They are threaded up to the chip top as ports rather than declared
+// supply1/supply0 where used. A constant-driven net is folded into the netlist's
+// constant bits, and Odb.SetPowerConnections resolves a constant bit to whichever
+// unrelated wire happens to be tied to 1'b1: one run reported "Connecting power
+// net DP.BCOMP.sub.c to DP.DMEM.IMPL.sram0/vccd1" - the subtractor's carry input
+// powering four SRAMs.
 `ifdef USE_POWER_PINS
-    `define PWR_CONN .vccd1(vccd1), .vssd1(vssd1),
+    `define PWR_PORTS , inout VPWR, VGND
+    `define PWR_CONN  .vccd1(VPWR), .vssd1(VGND),
 `else
+    `define PWR_PORTS
     `define PWR_CONN
 `endif
 

@@ -17,6 +17,8 @@
 #   make synth      yosys elaboration + cell stats + structural check
 #   make synth-asic the same over the build OpenLane would see
 #   make mem-agree  behavioural vs sky130 data memory, cycle for cycle
+#   make pnr        the LibreLane flow itself, from this directory (config.json)
+#   make pnr-check  gate the newest run: macro views, placement, power nets
 #   make pipe-stats flops per pipeline stage register
 #   make waves      simulate and leave build/core_tb.vcd behind
 #   make all        lint + lint-asic + check (all four suites) + mem-agree + both
@@ -87,7 +89,8 @@ VVP_SIM  := $(BUILD)/core-$(DUMP_MODE).vvp
 DIRECTED_SIM := $(BUILD)/directed.vvp
 
 .PHONY: all sim check baseline directed directed-baseline lint lint-asic \
-        synth synth-asic mem-agree pipe-stats waves dirs clean test-images \
+        synth synth-asic mem-agree pnr pnr-check pipe-stats waves dirs clean \
+        test-images \
         compliance compliance-sram compliance-baseline compliance-sram-baseline \
         check check-core check-directed check-compliance check-compliance-sram
 
@@ -527,6 +530,59 @@ synth: $(BUILD)/synth-sim.ys | dirs
 # them, not core state. The number that matters as a gate is latches == 0.
 synth-asic: $(BUILD)/synth-asic.ys | dirs
 	$(call yosys_synth,$<,-asic,sky130)
+
+# ------------------------------------------------------------------- PnR ----
+# The flow is run from this directory so the `dir::` references in config.json
+# resolve against the design, and it is deliberately in neither `all` nor CI: it
+# needs the sky130A PDK plus magic/klayout/openroad, and it takes tens of
+# minutes. Skips (rather than fails) when librelane is not installed, like the
+# other tool-gated targets.
+pnr: | dirs
+	@if ! command -v librelane >/dev/null 2>&1; then \
+		echo "pnr SKIPPED: librelane not installed"; \
+	else \
+		librelane config.json; \
+	fi
+
+# Three greps over the newest run, each one aimed at a failure this flow had and
+# none of the flow's own exit codes reported as anything but silence: a macro
+# view that silently vanished from the resolved config, macros that were never
+# placed, and macro power pins bound to whatever signal happened to be tied to
+# 1'b1. Grepping the logs rather than the metrics is the point - black-boxed
+# timing and unplaced macros both reported "clean".
+pnr-check: | dirs
+	@if ! ls -d runs/RUN_* >/dev/null 2>&1; then \
+		echo "pnr-check SKIPPED: no runs/ directory"; exit 0; fi
+	@R=$$(ls -1dt runs/RUN_* | head -1); \
+	echo "== checking $$R =="; \
+	fail=0; \
+	if grep -qn "No libs found\|ORD-2011\|TAP-0032\|PDN-023" $$R/flow.log; then \
+		echo "GATE FAIL: the macro is black-boxed or unplaced in $$R/flow.log:"; \
+		grep -n "No libs found\|ORD-2011\|TAP-0032\|PDN-023" $$R/flow.log | head -6; \
+		fail=1; \
+	fi; \
+	P=$$(ls $$R/*-odb-manualmacroplacement/*.log 2>/dev/null | head -1); \
+	if test -z "$$P"; then \
+		echo "GATE FAIL: Odb.ManualMacroPlacement produced no log, i.e. it was" \
+		     "skipped - MACROS[*][instances] is empty, so no macro is placed"; \
+		fail=1; \
+	elif ! grep -q "Successfully placed 8 instances" "$$P"; then \
+		echo "GATE FAIL: expected 8 macros placed; $$P says:"; \
+		tail -4 "$$P"; fail=1; \
+	fi; \
+	S=$$(ls $$R/*-odb-setpowerconnections/*.log 2>/dev/null | head -1); \
+	if test -n "$$S"; then \
+		bad=$$(grep "Connecting \(power\|ground\) net" "$$S" \
+		       | grep -v "net VPWR to \|net VGND to " | wc -l); \
+		if test "$$bad" != "0"; then \
+			echo "GATE FAIL: $$bad macro power pin(s) bound to a non-supply net in $$S:"; \
+			grep "Connecting \(power\|ground\) net" "$$S" \
+			    | grep -v "net VPWR to \|net VGND to " | head -4; fail=1; \
+		fi; \
+	fi; \
+	if test "$$fail" = "0"; then \
+		echo "pnr-check OK: macro libs loaded, 8 macros placed, power pins on VPWR/VGND"; \
+	else exit 1; fi
 
 clean:
 	rm -rf $(BUILD) obj_dir

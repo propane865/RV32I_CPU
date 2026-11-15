@@ -12,8 +12,17 @@ obj_dir/
 *.blif
 yosys.log
 
+# ... but config.json is that rule's one collateral casualty: it is the PnR flow's
+# input (macro views, placements, corner list), so ignoring it silently loses the
+# entire top-level integration. runs/ and build/ are ignored in their own right,
+# which is what the blanket rule above was really for.
+!config.json
+
 # legacy dump path used by the old testbench
 verification/
+
+plans/
+runs/
 
 # editors
 *.swp

@@ -39,7 +39,13 @@
 //
 // The instance is named IMPL because the testbench reaches the storage array
 // through it (DUT.DP.DMEM.IMPL.mem) to preload and check bytes.
-module dmem(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w_data, output [31:0] r_data);
+`include "defines.vh"
+
+module dmem(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w_data, output [31:0] r_data
+    `ifdef USE_POWER_PINS
+            `PWR_PORTS
+    `endif
+            );
     `include "defines.vh"
 
     // ---- store side: the live access ------------------------------------------
@@ -72,7 +78,13 @@ module dmem(input clk, w_ena, is_signed, input [1:0] width, input [31:0] addr, w
     wire [31:0] rdata;
 
 `ifdef USE_SRAM_MEMS
+    // The macro's power pins are passed through, not generated here: they belong
+    // to the chip top, and only the macro build has anywhere to put them.
     dmem_sram IMPL(
+        `ifdef USE_POWER_PINS
+        .VPWR   (VPWR),
+        .VGND   (VGND),
+        `endif
         .clk    (clk),
         .w_ena  (w_ena),
         .w_strb (w_strb),
