@@ -22,6 +22,8 @@
 // without an assembler.
 module directed_tb;
 
+    `include "defines.vh"
+
     reg clk, rst;
     wire [31:0] pc_out, dmem_addr, dmem_wdata, dmem_rdata;
     wire [1:0] dmem_width;
@@ -42,9 +44,9 @@ module directed_tb;
     `define IMEM DUT.DP.IMEM.IMPL.mem
     `define DMEM DUT.DP.DMEM.IMPL.mem
 
-    // Storage depth. Kept as locals so the clear loops cannot outgrow the model.
-    localparam IMEM_WORDS = 1024;
-    localparam DMEM_BYTES = 4096;
+    // Storage depth, from the same defines the models are sized by.
+    localparam IMEM_WORDS = `IMEM_WORDS;
+    localparam DMEM_BYTES = `DMEM_BYTES;
 
     integer failed = 0;
 

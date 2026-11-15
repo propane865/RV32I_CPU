@@ -331,7 +331,11 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
 
     // ===============================================Stage 5 - Memory==========
     // The access address is the ALU result and the store data is rs2, both
-    // carried down from the execute stages.
+    // carried down from the execute stages. The read data is a flop inside the
+    // memory, so it belongs to this access one cycle from now - which is to say,
+    // it belongs to the instruction now entering writeback, and the writeback mux
+    // reads it here rather than from a stage register that would have had to
+    // sample it before it existed.
     wire [31:0] mem_rdata;
 
     dmem DMEM(
@@ -341,7 +345,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .w_data   (exmem_rs2_data), .r_data (mem_rdata)
     );
 
-    wire [31:0] memwb_alu_out, memwb_mem_rdata, memwb_pc_plus4;
+    wire [31:0] memwb_alu_out, memwb_pc_plus4;
     wire [4:0]  memwb_rd;
     wire [1:0]  memwb_wb_sel;
     wire        memwb_reg_w_ena;
@@ -350,13 +354,11 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .clk          (clk),
         .rst          (rst),
         .i_alu_out    (exmem_alu_out),
-        .i_mem_rdata  (mem_rdata),
         .i_pc_plus4   (exmem_pc_plus4),
         .i_rd         (exmem_rd),
         .i_wb_sel     (exmem_wb_sel),
         .i_reg_w_ena  (exmem_reg_w_ena),
         .o_alu_out    (memwb_alu_out),
-        .o_mem_rdata  (memwb_mem_rdata),
         .o_pc_plus4   (memwb_pc_plus4),
         .o_rd         (memwb_rd),
         .o_wb_sel     (memwb_wb_sel),
@@ -367,10 +369,13 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     assign wb_reg_w_ena = memwb_reg_w_ena;
     assign wb_rd        = memwb_rd;
 
+    // A load's value is the only writeback source that is not a pipeline
+    // register: it comes straight off the memory's registered read port, valid
+    // for exactly as long as the load occupies this stage.
     always @(*) begin
         case (memwb_wb_sel)
             `WB_ALU: wb_data = memwb_alu_out;
-            `WB_MEM: wb_data = memwb_mem_rdata;
+            `WB_MEM: wb_data = mem_rdata;
             `WB_PC4: wb_data = memwb_pc_plus4;
             default: wb_data = 32'h0;
         endcase
@@ -406,7 +411,9 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .forward_b        (forward_b)
     );
 
-    // Map internal signals to outputs
+    // Map internal signals to outputs. Note the phase relationship: dmem_addr is
+    // the access being issued now, dmem_rdata is the read data of the access that
+    // was issued one cycle ago (see rtl/mem/dmem.v).
     assign pc_out     = pc_current;
     assign dmem_addr  = exmem_alu_out;
     assign dmem_wdata = exmem_rs2_data;

@@ -176,7 +176,7 @@ lint-asic: | dirs
 # boundary in both directions.
 mem-agree: | dirs
 	$(IVERILOG) $(IV_FLAGS) -I$(RTL_DIR) -o $(BUILD)/mem_agree.vvp \
-		$(RTL_DIR)/mem/dmem_lanes.v \
+		$(RTL_DIR)/mem/dmem_w_lanes.v $(RTL_DIR)/mem/dmem_r_lanes.v \
 		$(RTL_DIR)/mem/imem.v $(RTL_DIR)/mem/imem_behav.v $(RTL_DIR)/mem/imem_sram.v \
 		$(RTL_DIR)/mem/dmem.v $(RTL_DIR)/mem/dmem_behav.v $(RTL_DIR)/mem/dmem_sram.v \
 		vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v \

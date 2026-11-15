@@ -25,7 +25,7 @@ PASS LBU zero-ext         | x4  = 0x000000ab
 PASS LH positive          | x6  = 0x000001ff
 PASS LHU zero-ext         | x7  = 0x0000ffff
 PASS LH sign-ext          | x8  = 0xffffffff
-PASS SW roundtrip         | mem[0x000] = 0x000000ab
+PASS SW roundtrip         | mem[0x0000] = 0x000000ab
 
 --- Test 4: Comparisons ---
 PASS SLT true             | x4  = 0x00000001
@@ -65,8 +65,8 @@ PASS LW aligned 0         | x3  = 0x1100ab00
 PASS LHU top byte         | x4  = 0x00000011
 PASS LW unaligned 1       | x5  = 0x1100ab00
 PASS SH no spill          | x6  = 0x00000022
-PASS H low byte lands     | mem[0x000] = 0x4400ab00
-PASS SW at 4095           | mem[0xffc] = 0xdeadb0ef
+PASS H low byte lands     | mem[0x0000] = 0x4400ab00
+PASS SW at 4095           | mem[0x0ffc] = 0xdeadb0ef
 
 ========================================
 ALL TESTS PASSED

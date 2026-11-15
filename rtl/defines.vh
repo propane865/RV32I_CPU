@@ -68,6 +68,16 @@
 // place that says so.
 `define RESET_PC   32'h0000_0000
 
+// Storage depth, in the units each model is addressed in: imem is a word array,
+// dmem is a byte array. Both are 8 KiB, which is the smallest power of two that
+// holds a linked RV32I test image and its data and stack without wrapping; the
+// sky130 wrappers build both out of the PDK's 2 KiB macros, so these numbers must
+// stay whole multiples of 2 KiB. A fetch or access above the end of storage
+// wraps, so the compliance harness checks that an image fits instead of letting
+// it silently alias.
+`define IMEM_WORDS 2048
+`define DMEM_BYTES 8192
+
 // --------------------------------------------------- ALU operation select ----
 // Microarchitecture-internal: control.v emits these, alu.v decodes them. Four
 // bits, because the operation alone must say everything the ALU does: SUB is

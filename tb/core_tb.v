@@ -2,6 +2,8 @@
 
 module core_tb;
 
+    `include "defines.vh"
+
     // DUT signals
     reg clk, rst;
     wire dmem_w_ena;
@@ -46,18 +48,18 @@ module core_tb;
     endtask
 
     task check_mem_word;
-        input [11:0]  addr;
+        input [12:0]  addr;
         input [31:0]  expected;
         input [127:0] name;
         reg [31:0] got;
         begin
             got = {`DMEM[addr+3], `DMEM[addr+2], `DMEM[addr+1], `DMEM[addr]};
             if (got !== expected) begin
-                $display("FAIL %-20s | mem[0x%03h] = 0x%08h | expected 0x%08h",
+                $display("FAIL %-20s | mem[0x%04h] = 0x%08h | expected 0x%08h",
                          name, addr, got, expected);
                 failed = failed + 1;
             end else
-                $display("PASS %-20s | mem[0x%03h] = 0x%08h", name, addr, got);
+                $display("PASS %-20s | mem[0x%04h] = 0x%08h", name, addr, got);
         end
     endtask
 
@@ -77,11 +79,15 @@ module core_tb;
     // only zeroed by the initial block at time 0), so without this every test
     // inherits the previous test's register values. That silently makes any
     // "register must still be zero" check meaningless.
+    //
+    // The bounds are the storage sizes in rtl/defines.vh (`IMEM_WORDS words of
+    // instruction, `DMEM_BYTES bytes of data); a test that wrote above them would
+    // not be cleared between runs, so they are named rather than counted.
     task clear_mem;
         integer j;
         begin
-            for (j = 0; j < 1024; j = j + 1) `IMEM[j] = 32'h00000013;
-            for (j = 0; j < 4096; j = j + 1) `DMEM[j] = 8'h00;
+            for (j = 0; j < `IMEM_WORDS; j = j + 1) `IMEM[j] = 32'h00000013;
+            for (j = 0; j < `DMEM_BYTES; j = j + 1) `DMEM[j] = 8'h00;
             for (j = 1; j < 32;  j = j + 1) `RF[j]   = 32'h0;
         end
     endtask
@@ -325,7 +331,7 @@ module core_tb;
 
     // Test 10: unaligned sub-word accesses - the memory system's contract.
     //
-    // The rule both data memories implement (rtl/mem/dmem_lanes.v) is that an
+    // The rule both data memories implement (rtl/mem/dmem_w_lanes.v) is that an
     // access is confined to the word containing its address: an access never
     // reaches into the neighbouring word. These checks pin that down, including
     // the cases where the old behavioural model and the sky130 macros disagreed:
@@ -343,7 +349,7 @@ module core_tb;
     //
     // This is a documented deviation from RV32I, which permits straddling
     // accesses: here they are truncated rather than wrapped or trapped, because a
-    // single-port SRAM cannot write two words in one cycle. See dmem_lanes.v.
+    // single-port SRAM cannot write two words in one cycle. See dmem_w_lanes.v.
     task test_unaligned;
         begin
             $display("\n--- Test 10: Unaligned access contract ---");
