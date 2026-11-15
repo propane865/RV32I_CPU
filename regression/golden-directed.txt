@@ -99,6 +99,19 @@ PASS jalr link d2             | x10 = 0x00000046
 PASS jalr link d3             | x11 = 0x00000046
 PASS jalr link d4             | x12 = 0x00000046
 
+--- D5: load-use stall cost ---
+PASS lw->alu        d0 | stalls = 2
+PASS lw->alu        d1 | stalls = 1
+PASS lw->alu        d2 | stalls = 0
+PASS lw->alu        d3 | stalls = 0
+PASS lw->alu rs2    d0 | stalls = 2
+PASS lw->sw data    d0 | stalls = 2
+PASS lw->lw addr    d0 | stalls = 2
+PASS alu->alu       d0 | stalls = 0
+PASS lw vs addi imm d0 | stalls = 0
+PASS lw vs lui imm  d0 | stalls = 0
+PASS lw x0          d0 | stalls = 0
+
 ========================================
 ALL DIRECTED TESTS PASSED
 ========================================

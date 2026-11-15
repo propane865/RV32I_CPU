@@ -418,14 +418,14 @@ module directed_tb;
         end
     endtask
 
-    task fwd_case;
-        input [255:0] base;      // case family; the distance is printed with it
-        input [31:0]  prod;
+    // Load the standard producer/consumer shape into a machine that is in reset,
+    // with the data it reads preloaded. Shared by the value sweep and the stall
+    // accounting sweep, so the program measured for timing is the same program
+    // measured for correctness.
+    task load_fw_case;
+        input [31:0] prod;
         input integer d;
-        input [31:0]  cons;
-        input integer chk_mem;
-        input [4:0]   chk_reg;
-        input [31:0]  expected;
+        input [31:0] cons;
         integer j;
         begin
             // Assert reset before loading the program: without it the core keeps
@@ -435,24 +435,120 @@ module directed_tb;
             clear_all;
             // setup: x2 = load base, x3/x4 = ALU operands, x6 = 7,
             //        x8 = JALR target, x9 = store destination
-            `IMEM[0] = enc_i(DATA_ADDR[11:0],  5'd0, 3'h0, 5'd2);
-            `IMEM[1] = enc_i(X3_VAL[11:0],     5'd0, 3'h0, 5'd3);
-            `IMEM[2] = enc_i(X4_VAL[11:0],     5'd0, 3'h0, 5'd4);
-            `IMEM[3] = enc_i(12'd7,            5'd0, 3'h0, 5'd6);
-            `IMEM[4] = enc_i(STORE_ADDR[11:0], 5'd0, 3'h0, 5'd9);
+            `IMEM[0] = enc_i(DATA_ADDR[11:0],   5'd0, 3'h0, 5'd2);
+            `IMEM[1] = enc_i(X3_VAL[11:0],      5'd0, 3'h0, 5'd3);
+            `IMEM[2] = enc_i(X4_VAL[11:0],      5'd0, 3'h0, 5'd4);
+            `IMEM[3] = enc_i(12'd7,             5'd0, 3'h0, 5'd6);
+            `IMEM[4] = enc_i(STORE_ADDR[11:0],  5'd0, 3'h0, 5'd9);
             `IMEM[5] = enc_i(JUMP_TARGET[11:0], 5'd0, 3'h0, 5'd8);
             for (j = 6; j < PROD_W; j = j + 1) `IMEM[j] = NOP;
             `IMEM[PROD_W]      = prod;
             for (j = 1; j <= d; j = j + 1) `IMEM[PROD_W + j] = NOP;
             `IMEM[PROD_W + d + 1] = cons;
-            poke(DATA_ADDR,  LOAD_VAL);
-            poke(DATA_ADDR + 4, 32'h0000_1234);
+            poke(DATA_ADDR,   LOAD_VAL);
+            poke(DATA_ADDR + 4,  32'h0000_1234);
             poke(DATA_ADDR + 16, PTR_VAL);
-            poke(STORE_ADDR, 32'h0000_0000);
+            poke(STORE_ADDR,  32'h0000_0000);
+        end
+    endtask
+
+    task fwd_case;
+        input [255:0] base;      // case family; the distance is printed with it
+        input [31:0]  prod;
+        input integer d;
+        input [31:0]  cons;
+        input integer chk_mem;
+        input [4:0]   chk_reg;
+        input [31:0]  expected;
+        begin
+            load_fw_case(prod, d, cons);
             release_reset;
             run_cycles(40);
             if (chk_mem < 0) sweep_check_reg(base, d, chk_reg, expected);
             else             sweep_check_mem(base, d, chk_mem[12:0], expected);
+        end
+    endtask
+
+    // =========================================================================
+    // Stall accounting
+    //
+    // The value sweeps say a dependent consumer gets the right answer; they cannot
+    // say what that cost. The cost is half of the fix's contract, and the reason
+    // the fix is a stall rather than a forward: a load's value does not exist
+    // before its own writeback cycle, so no forwarding path can shorten the wait to
+    // zero. Counting the frozen cycles per case pins the wait (two cycles for an
+    // immediately dependent consumer, one for the next slot, none from the third
+    // slot over) and pins the other half as well - an instruction that does not
+    // read the load's register must stall zero cycles, which is exactly what the
+    // decoder's uses_rs1 / uses_rs2 are for.
+    // =========================================================================
+    integer stall_count = 0;
+
+    always @(posedge clk)
+        if (!rst && DUT.DP.stall_pc === 1'b1) stall_count = stall_count + 1;
+
+    task stall_case;
+        input [255:0] base;
+        input integer d;
+        input [31:0]  prod;
+        input [31:0]  cons;
+        input integer expected;
+        begin
+            load_fw_case(prod, d, cons);
+            stall_count = 0;
+            release_reset;
+            run_cycles(40);
+            if (stall_count !== expected) begin
+                $display("FAIL %-14s d%0d | stalls = %0d | expected %0d",
+                         base, d, stall_count, expected);
+                failed = failed + 1;
+            end else
+                $display("PASS %-14s d%0d | stalls = %0d", base, d, stall_count);
+        end
+    endtask
+
+    task test_stall_accounting;
+        begin
+            $display("\n--- D5: load-use stall cost ---");
+            // A load's value appears the cycle after its memory access, so the
+            // consumer waits two cycles, then one, then nothing.
+            stall_case("lw->alu", 0, enc_load(12'd0, 5'd2, 3'h2, 5'd5),
+                       enc_r(7'h00, 5'd4, 5'd5, 3'h0, 5'd7), 2);
+            stall_case("lw->alu", 1, enc_load(12'd0, 5'd2, 3'h2, 5'd5),
+                       enc_r(7'h00, 5'd4, 5'd5, 3'h0, 5'd7), 1);
+            stall_case("lw->alu", 2, enc_load(12'd0, 5'd2, 3'h2, 5'd5),
+                       enc_r(7'h00, 5'd4, 5'd5, 3'h0, 5'd7), 0);
+            stall_case("lw->alu", 3, enc_load(12'd0, 5'd2, 3'h2, 5'd5),
+                       enc_r(7'h00, 5'd4, 5'd5, 3'h0, 5'd7), 0);
+            // The second operand lane is a dependency too, so it costs the same. An
+            // instruction that ignored uses_rs2 would report 0 here and be wrong.
+            stall_case("lw->alu rs2", 0, enc_load(12'd0, 5'd2, 3'h2, 5'd5),
+                       enc_r(7'h00, 5'd5, 5'd4, 3'h0, 5'd7), 2);
+            // A store's data and a second load's address are consumers as well.
+            stall_case("lw->sw data", 0, enc_load(12'd0, 5'd2, 3'h2, 5'd5),
+                       enc_s(12'd0, 5'd5, 5'd9, 3'h2), 2);
+            stall_case("lw->lw addr", 0, enc_load(12'd0, 5'd2, 3'h2, 5'd5),
+                       enc_load(12'd0, 5'd5, 3'h2, 5'd7), 2);
+            // An ALU producer costs nothing: its value exists a stage earlier,
+            // which is the whole difference between the two kinds of producer.
+            stall_case("alu->alu", 0, enc_r(7'h00, 5'd4, 5'd3, 3'h0, 5'd5),
+                       enc_r(7'h00, 5'd4, 5'd5, 3'h0, 5'd7), 0);
+            // False hazards: a load whose rd matches a *field* of the younger
+            // instruction that does not read that operand. The ADDI's rs2 field is
+            // part of its immediate (4), the LUI's rs1 field is part of its
+            // immediate (8); neither instruction reads either register. Both used
+            // to cost a bubble.
+            stall_case("lw vs addi imm", 0, enc_load(12'd0, 5'd2, 3'h2, 5'd4),
+                       enc_i(12'd4, 5'd0, 3'h0, 5'd7), 0);
+            // 0x40, because an LUI's rs1 field is imm20[7:3]: 0x40 >> 3 == 8, which
+            // is the register the load writes. An immediate of 0x400 would have put
+            // x0 there, and x0 is excluded, so the case would have passed for the
+            // wrong reason.
+            stall_case("lw vs lui imm",  0, enc_load(12'd0, 5'd2, 3'h2, 5'd8),
+                       enc_u(20'h00040, 5'd7, 7'b0110111), 0);
+            // x0 is never a dependency, whatever a pending write claims about it.
+            stall_case("lw x0", 0, enc_load(12'd0, 5'd2, 3'h2, 5'd0),
+                       enc_r(7'h00, 5'd4, 5'd0, 3'h0, 5'd7), 0);
         end
     endtask
 
@@ -657,6 +753,7 @@ module directed_tb;
         test_forwarding_sweep;
         test_address_operand_sweep;
         test_link_value_sweep;
+        test_stall_accounting;
 
         $display("\n========================================");
         if (failed == 0)
