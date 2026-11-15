@@ -75,7 +75,8 @@ VVP_SIM  := $(BUILD)/core-$(DUMP_MODE).vvp
 DIRECTED_SIM := $(BUILD)/directed.vvp
 
 .PHONY: all sim check baseline directed directed-baseline lint lint-asic \
-        synth synth-asic mem-agree pipe-stats waves dirs clean test-images
+        synth synth-asic mem-agree pipe-stats waves dirs clean test-images \
+        compliance compliance-sram compliance-baseline compliance-sram-baseline
 
 all: lint lint-asic check mem-agree synth synth-asic pipe-stats
 
@@ -274,6 +275,133 @@ $(TEST_BUILD)/rv32ui-p-%.imem.hex $(TEST_BUILD)/rv32ui-p-%.dmem.hex &: $(TEST_BU
 
 test-images: $(addsuffix .imem.hex,$(addprefix $(TEST_BUILD)/,$(RVTEST_TESTS)))
 	@echo "$(words $(RVTEST_TESTS)) riscv-tests images built in $(TEST_BUILD)"
+
+# ------------------------------------------------------------- compliance run --
+#
+# tb/compliance_tb.v runs ONE test per process - a riscv-test is a flat binary at
+# address 0 with nothing in it that resets the machine, so two tests in one
+# simulation would mean the second inheriting the first's registers and data -
+# which is why the suite loop, and therefore the tally, lives here rather than in
+# the testbench.
+#
+# The suite is compiled and simulated twice: once against the behavioural memories
+# and once against the sky130 macros, from the same hex images, with the same
+# expectations. That second run is what the memory work was for. A core that passes
+# with a memory whose read data comes out when you ask for it, and fails with the
+# macro that registers it, is a core that would have been taped out broken, and
+# model-versus-model comparison alone (make mem-agree) cannot see it: the two
+# models agree, the pipeline is what has to change.
+#
+# Like mem-agree, the testbench is compiled from an explicit iverilog line rather
+# than being added to filelists/sim.f, because filelists describe the *design*, and
+# a compliance testbench that reached into memory internals does not belong in the
+# list that a synthesis script is derived from.
+COMPLIANCE_TB        := tb/compliance_tb.v
+COMPLIANCE_SIM       := $(BUILD)/compliance.vvp
+COMPLIANCE_SIM_SRAM  := $(BUILD)/compliance-sram.vvp
+COMPLIANCE_LOG       := $(BUILD)/compliance.log
+COMPLIANCE_LOG_SRAM  := $(BUILD)/compliance-sram.log
+COMPLIANCE_GOLDEN         := regression/golden-compliance.txt
+COMPLIANCE_GOLDEN_SRAM    := regression/golden-compliance-sram.txt
+
+$(COMPLIANCE_SIM): $(COMPLIANCE_TB) $(SIM_F) $(wildcard $(RTL_DIR)/*.v) $(wildcard $(RTL_DIR)/mem/*.v) | dirs
+	$(IVERILOG) $(IV_FLAGS) -I$(RTL_DIR) -c $(SIM_F) -o $@ $(COMPLIANCE_TB) -s compliance_tb
+
+# The tapeout configuration: macros, and the power-pin variant of the wrappers, so
+# this exercises the same build lint-asic and synth-asic do.
+$(COMPLIANCE_SIM_SRAM): $(COMPLIANCE_TB) $(ASIC_F) $(wildcard $(RTL_DIR)/*.v) $(wildcard $(RTL_DIR)/mem/*.v) vendor/sky130_sram_2kbyte_1rw1r_32x512_8.v | dirs
+	# -D, not the +define+NAME form: iverilog reads `+define+USE_SRAM_MEMS' as a
+	# file name to open, and the failure it reports is "No such file or directory"
+	# for a define that looks perfectly well formed on the command line. The same
+	# flag shape as the -DNODUMP above.
+	$(IVERILOG) $(IV_FLAGS) -DUSE_SRAM_MEMS -DUSE_POWER_PINS \
+		-I$(RTL_DIR) -c $(ASIC_F) -o $@ $(COMPLIANCE_TB) -s compliance_tb
+
+# Run the suite into a log. $(1) binary, $(2) log, $(3) what to call it in messages.
+#
+# Two structural checks before anything is compared: one verdict line per test (a
+# test whose process died mid-print would otherwise vanish from the transcript and
+# the run would look shorter but clean), and a tally line at the end.
+define compliance_run
+	@rm -f $(2); \
+	for t in $(RVTEST_TESTS); do \
+		$(VVP) $(1) +TEST=$$t \
+			+IMEM=$(TEST_BUILD)/$$t.imem.hex \
+			+DMEM=$(TEST_BUILD)/$$t.dmem.hex | $(FILTER) >> $(2) \
+			|| { echo "GATE FAIL: $(3): $$t did not finish"; exit 1; }; \
+	done
+	@n=$$(grep -cE '^(PASS|FAIL) ' $(2) 2>/dev/null || true); \
+	if test "$$n" != "$(words $(RVTEST_TESTS))"; then \
+		echo "GATE FAIL: $(3) produced $$n verdicts for $(words $(RVTEST_TESTS)) tests"; \
+		exit 1; \
+	fi
+	@p=$$(grep -c '^PASS ' $(2)); f=$$(grep -c '^FAIL ' $(2) || true); \
+	 echo "$$p PASSED / $$f FAILED" >> $(2)
+endef
+
+# Compare against the recorded transcript, refusing to compare against nothing.
+# $(1) log, $(2) golden, $(3) label, $(4) promote target name
+define compliance_gate
+	@if ! grep -qE '^[0-9]+ PASSED / [0-9]+ FAILED$$' $(1); then \
+		echo "GATE FAIL: no tally in $(1) - the suite did not run."; tail -3 $(1); exit 1; \
+	fi
+	@if [ ! -f $(2) ]; then \
+		echo "GATE FAIL: no $(2). Run 'make $(4)' once you intend to change behaviour."; exit 1; \
+	fi
+	@if diff -u $(2) $(1); then \
+		echo "GATE PASS: $(3) matches $(2)"; \
+	else \
+		echo "GATE FAIL: $(3) differs from $(2)"; exit 1; \
+	fi
+endef
+
+# Both skip, rather than fail, when the riscv toolchain is missing, the same way
+# synth skips for yosys: the gate is for the machine that can run it, and a build
+# box without binutils should still be able to lint and simulate.
+compliance: | dirs
+	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
+		echo "compliance SKIPPED: $(RISCV_CC) not installed"; exit 0; fi
+	@$(MAKE) --no-print-directory test-images > /dev/null
+	@$(MAKE) --no-print-directory $(COMPLIANCE_SIM) > /dev/null
+	$(call compliance_run,$(COMPLIANCE_SIM),$(COMPLIANCE_LOG),compliance)
+	$(call compliance_gate,$(COMPLIANCE_LOG),$(COMPLIANCE_GOLDEN),compliance,compliance-baseline)
+
+compliance-sram: | dirs
+	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
+		echo "compliance-sram SKIPPED: $(RISCV_CC) not installed"; exit 0; fi
+	@$(MAKE) --no-print-directory test-images > /dev/null
+	@$(MAKE) --no-print-directory $(COMPLIANCE_SIM_SRAM) > /dev/null
+	$(call compliance_run,$(COMPLIANCE_SIM_SRAM),$(COMPLIANCE_LOG_SRAM),compliance-sram)
+	$(call compliance_gate,$(COMPLIANCE_LOG_SRAM),$(COMPLIANCE_GOLDEN_SRAM),compliance-sram,compliance-sram-baseline)
+
+# Promoting a compliance transcript is only allowed from a run with nothing failing
+# in it, behavioural or macro: recording "39 PASSED / 1 FAILED" as the expectation
+# is how a broken core becomes the reference.
+compliance-baseline: | dirs
+	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
+		echo "compliance-baseline SKIPPED: $(RISCV_CC) not installed"; exit 1; fi
+	@$(MAKE) --no-print-directory test-images > /dev/null
+	@$(MAKE) --no-print-directory $(COMPLIANCE_SIM) > /dev/null
+	$(call compliance_run,$(COMPLIANCE_SIM),$(COMPLIANCE_LOG),compliance)
+	@if grep -q '^FAIL ' $(COMPLIANCE_LOG); then \
+		echo "REFUSING to record a failing compliance run as the golden:"; \
+		grep '^FAIL ' $(COMPLIANCE_LOG); exit 1; fi
+	@mkdir -p $(dir $(COMPLIANCE_GOLDEN))
+	@cp $(COMPLIANCE_LOG) $(COMPLIANCE_GOLDEN)
+	@echo "Compliance golden transcript recorded at $(COMPLIANCE_GOLDEN)"
+
+compliance-sram-baseline: | dirs
+	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
+		echo "compliance-sram-baseline SKIPPED: $(RISCV_CC) not installed"; exit 1; fi
+	@$(MAKE) --no-print-directory test-images > /dev/null
+	@$(MAKE) --no-print-directory $(COMPLIANCE_SIM_SRAM) > /dev/null
+	$(call compliance_run,$(COMPLIANCE_SIM_SRAM),$(COMPLIANCE_LOG_SRAM),compliance-sram)
+	@if grep -q '^FAIL ' $(COMPLIANCE_LOG_SRAM); then \
+		echo "REFUSING to record a failing compliance run as the golden:"; \
+		grep '^FAIL ' $(COMPLIANCE_LOG_SRAM); exit 1; fi
+	@mkdir -p $(dir $(COMPLIANCE_GOLDEN_SRAM))
+	@cp $(COMPLIANCE_LOG_SRAM) $(COMPLIANCE_GOLDEN_SRAM)
+	@echo "Compliance (sky130 macros) golden transcript recorded at $(COMPLIANCE_GOLDEN_SRAM)"
 
 
 # ------------------------------------------------------------------ synth ---
