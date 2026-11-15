@@ -13,7 +13,23 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends iverilog verilator yosys
+          sudo apt-get install -y --no-install-recommends \
+            iverilog verilator yosys \
+            gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
+
+      # The compliance gates skip, rather than fail, when the riscv toolchain is
+      # missing - that is right for a build box where nobody intends to run the
+      # suite, and wrong for the job whose whole purpose is running it, because a
+      # skipped suite would report green. So the presence of the toolchain is itself
+      # a step, and it says what to install when it is not there.
+      - name: Check the riscv toolchain is actually installed
+        run: |
+          if ! command -v riscv64-unknown-elf-gcc >/dev/null 2>&1; then
+            echo "::error::riscv64-unknown-elf-gcc is missing, so make compliance" \
+                 "would skip and this job would be green without running the suite."
+            exit 1
+          fi
+          riscv64-unknown-elf-gcc --version | head -1
 
       # Both builds are linted. The behavioural and SRAM memories declare the same
       # module names, so the two filelists are checked separately - this is what
@@ -24,17 +40,39 @@ jobs:
       - name: Lint (sky130 build)
         run: make lint-asic
 
-      # Behaviour gate: transcript must match build/baseline.log and must contain
-      # a verdict.
-      - name: Regression check
-        run: make check
+      # The four golden-transcript suites, one step each so the failing suite is the
+      # failing step. Together these are `make check`.
+      #
+      # core_tb: instruction-level behaviour, on the behavioural memories.
+      - name: Regression check (core_tb)
+        run: make check-core
+
+      # Directed pipeline-control tests: what executes when two control events land
+      # in the same cycle - redirect against load-use stall, forwarding priority,
+      # the exceptions that must and must not be raised, and the instruction sweep.
+      - name: Directed tests
+        run: make check-directed
+
+      # Upstream riscv-tests rv32ui, 40 tests, end-to-end through the ECALL exit
+      # protocol. This is the step that would notice a core that implements RV32I
+      # differently from what the rest of the world means by it.
+      - name: Compliance (behavioural memories)
+        run: make check-compliance
+
+      # The same 40 programs and the same hex images against the sky130 macros. The
+      # behavioural and macro transcripts are identical in the recorded goldens, so
+      # a difference here is a memory-wrapper bug rather than a test artefact.
+      - name: Compliance (sky130 memories)
+        run: make check-compliance-sram
 
       # The regression run only ever exercises one memory build, so check the
       # substitution itself: same stimulus into both, same values out.
       - name: Memory models agree
         run: make mem-agree
 
-      # "Is this still synthesizable" gate + cell/flop count for area regressions.
+      # "Is this still synthesizable" gate + cell/flop count for area regressions,
+      # and yosys' structural check: undriven nets, conflicting drivers, combinational
+      # loops - none of which shows up as an attributable wrong value.
       - name: Synthesis (behavioural memories)
         run: make synth
 

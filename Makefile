@@ -1,14 +1,26 @@
 # =============================================================================
 # RV32I core - build, lint, simulate, synthesise
 #
-#   make sim        simulate tb/core_tb.v (behavioural memories)
-#   make check      simulate and diff against build/baseline.log
-#   make baseline   promote the current behaviour to regression/golden.txt
+#   make sim        simulate tb/core_tb.v (behavioural memories), print the transcript
+#   make check      ALL FOUR golden-transcript gates: core_tb, directed, and both
+#                   compliance runs. Per-suite: check-core, check-directed,
+#                   check-compliance, check-compliance-sram.
+#   make baseline   promote core_tb's current behaviour to regression/golden.txt
+#                   (the other three: directed-baseline, compliance-baseline,
+#                    compliance-sram-baseline; each refuses a failing run)
+#   make directed   pipeline-control + instruction-sweep tests, gated
+#   make compliance upstream riscv-tests rv32ui, 40 tests, behavioural memories
+#   make compliance-sram                ... the same, against the sky130 macros
+#   make test-images                    assemble + link + convert the suite only
 #   make lint       verilator --lint-only -Wall, simulation filelist
 #   make lint-asic  verilator --lint-only -Wall, sky130 filelist (+ power pins)
-#   make synth      yosys elaboration + cell statistics (sky130 cleanliness gate)
+#   make synth      yosys elaboration + cell stats + structural check
+#   make synth-asic the same over the build OpenLane would see
+#   make mem-agree  behavioural vs sky130 data memory, cycle for cycle
+#   make pipe-stats flops per pipeline stage register
 #   make waves      simulate and leave build/core_tb.vcd behind
-#   make all        lint + lint-asic + check + synth
+#   make all        lint + lint-asic + check (all four suites) + mem-agree + both
+#                   syntheses + pipe-stats
 #
 #   riscv-tests (see vendor/riscv-tests/UPSTREAM.md and tb/env/README.md):
 #   make test-images           assemble + link + convert every rv32ui test
@@ -76,9 +88,21 @@ DIRECTED_SIM := $(BUILD)/directed.vvp
 
 .PHONY: all sim check baseline directed directed-baseline lint lint-asic \
         synth synth-asic mem-agree pipe-stats waves dirs clean test-images \
-        compliance compliance-sram compliance-baseline compliance-sram-baseline
+        compliance compliance-sram compliance-baseline compliance-sram-baseline \
+        check check-core check-directed check-compliance check-compliance-sram
 
+# Everything, in the order that fails fastest: lint, then the four golden
+# transcripts, then the memory-model equivalence, then the two syntheses.
+#
+# `check` is the four gates - core_tb, the directed suite, and both compliance runs -
+# so `all` picks up directed and compliance through it rather than by naming them
+# again. Naming them twice would not make the signoff stronger; it would run two
+# 40-test suites and a 800-check directed run a second time, and a gate that takes
+# twice as long for no extra coverage is a gate people skip.
 all: lint lint-asic check mem-agree synth synth-asic pipe-stats
+
+check: check-core check-directed check-compliance check-compliance-sram
+	@echo "ALL GOLDEN TRANSCRIPTS MATCH"
 
 dirs:
 	@mkdir -p $(BUILD)
@@ -95,24 +119,45 @@ sim: $(VVP_SIM) | dirs
 waves: $(TB) $(SIM_F) | dirs
 	@$(MAKE) --no-print-directory NODUMP=0 sim
 
-# Regression gate: the transcript must match the recorded golden transcript byte for byte,
-# AND it must actually contain a verdict. A testbench that silently fails to run
-# (e.g. an unopenable $dumpfile kills iverilog with exit status 0) has happened
-# here before, so a verdict-less log is treated as a failure.
-check: $(VVP_SIM) | dirs
-	@$(VVP) $< | $(FILTER) > $(SIM_LOG)
-	@if ! grep -qE "ALL TESTS PASSED|TEST\(S\) FAILED" $(SIM_LOG); then \
-		echo "GATE FAIL: no verdict found in $(SIM_LOG) - the testbench did not run."; \
-		tail -5 $(SIM_LOG); exit 1; \
+# What a finished run of each suite looks like. Variables rather than literals in
+# the calls below: a $(call ...) in a recipe has to fit on one recipe line, because
+# make hands a backslash-newline to the shell rather than to the function, and a
+# regex that has quietly grown a newline matches nothing - which then reports "the
+# testbench did not run" about a testbench that ran perfectly.
+CORE_VERDICT     := ALL TESTS PASSED|TEST\(S\) FAILED
+DIRECTED_VERDICT := ALL DIRECTED TESTS PASSED|DIRECTED TEST\(S\) FAILED
+
+# One golden-transcript gate, shared by every suite in this repo: run, insist the
+# transcript contains a verdict, insist a golden exists, insist the two match byte
+# for byte.
+#
+# The verdict check is not ceremony. A testbench that silently fails to run - an
+# unopenable $dumpfile kills iverilog with exit status 0, which has happened here -
+# produces an empty transcript, and an empty transcript diffs clean against nothing
+# only until someone records an empty run as the golden. So a verdict-less log is a
+# failure before it is ever a comparison.
+#
+# $(1) binary to run, $(2) transcript, $(3) golden, $(4) what a finished run looks
+# like, $(5) the target that records the golden, $(6) name used in messages.
+define golden_gate
+	@$(VVP) $(1) | $(FILTER) > $(2)
+	@if ! grep -qE "$(4)" $(2); then \
+		echo "GATE FAIL: no verdict found in $(2) - the testbench did not run."; \
+		tail -5 $(2); exit 1; \
 	fi
-	@if [ ! -f $(GOLDEN) ]; then \
-		echo "GATE FAIL: no $(GOLDEN). Run 'make baseline' once you intend to change behaviour."; exit 1; \
+	@if [ ! -f $(3) ]; then \
+		echo "GATE FAIL: no $(3). Run 'make $(5)' once you intend to change behaviour."; exit 1; \
 	fi
-	@if diff -u $(GOLDEN) $(SIM_LOG); then \
-		echo "GATE PASS: behaviour matches $(GOLDEN)"; \
+	@if diff -u $(3) $(2); then \
+		echo "GATE PASS: $(6) matches $(3)"; \
 	else \
-		echo "GATE FAIL: behaviour differs from $(GOLDEN)"; exit 1; \
+		echo "GATE FAIL: $(6) differs from $(3)"; exit 1; \
 	fi
+endef
+
+# Per-suite, so CI can say which one broke; `check` below is the one you type.
+check-core: $(VVP_SIM) | dirs
+	$(call golden_gate,$(VVP_SIM),$(SIM_LOG),$(GOLDEN),$(CORE_VERDICT),baseline,core_tb)
 
 baseline: sim
 	@mkdir -p $(dir $(GOLDEN))
@@ -129,20 +174,11 @@ baseline: sim
 $(DIRECTED_SIM): $(DIRECTED_TB) $(SIM_F) $(wildcard $(RTL_DIR)/*.v) $(wildcard $(RTL_DIR)/mem/*.v) | dirs
 	$(IVERILOG) $(IV_FLAGS) -I$(RTL_DIR) -c $(SIM_F) -o $@ $(DIRECTED_TB) -s directed_tb
 
-directed: $(DIRECTED_SIM) | dirs
-	@$(VVP) $< | $(FILTER) > $(DIRECTED_LOG)
-	@if ! grep -qE "ALL DIRECTED TESTS PASSED|DIRECTED TEST\(S\) FAILED" $(DIRECTED_LOG); then \
-		echo "GATE FAIL: no verdict found in $(DIRECTED_LOG) - the testbench did not run."; \
-		tail -5 $(DIRECTED_LOG); exit 1; \
-	fi
-	@if [ ! -f $(DIRECTED_GOLDEN) ]; then \
-		echo "GATE FAIL: no $(DIRECTED_GOLDEN). Run 'make directed-baseline' once you intend to change behaviour."; exit 1; \
-	fi
-	@if diff -u $(DIRECTED_GOLDEN) $(DIRECTED_LOG); then \
-		echo "GATE PASS: behaviour matches $(DIRECTED_GOLDEN)"; \
-	else \
-		echo "GATE FAIL: behaviour differs from $(DIRECTED_GOLDEN)"; exit 1; \
-	fi
+check-directed: $(DIRECTED_SIM) | dirs
+	$(call golden_gate,$(DIRECTED_SIM),$(DIRECTED_LOG),$(DIRECTED_GOLDEN),$(DIRECTED_VERDICT),directed-baseline,directed)
+
+# The name the plan, the README and muscle memory use.
+directed: check-directed
 
 directed-baseline: $(DIRECTED_SIM) | dirs
 	@$(VVP) $< | $(FILTER) > $(DIRECTED_LOG)
@@ -358,7 +394,7 @@ endef
 # Both skip, rather than fail, when the riscv toolchain is missing, the same way
 # synth skips for yosys: the gate is for the machine that can run it, and a build
 # box without binutils should still be able to lint and simulate.
-compliance: | dirs
+check-compliance: | dirs
 	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
 		echo "compliance SKIPPED: $(RISCV_CC) not installed"; exit 0; fi
 	@$(MAKE) --no-print-directory test-images > /dev/null
@@ -366,7 +402,7 @@ compliance: | dirs
 	$(call compliance_run,$(COMPLIANCE_SIM),$(COMPLIANCE_LOG),compliance)
 	$(call compliance_gate,$(COMPLIANCE_LOG),$(COMPLIANCE_GOLDEN),compliance,compliance-baseline)
 
-compliance-sram: | dirs
+check-compliance-sram: | dirs
 	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
 		echo "compliance-sram SKIPPED: $(RISCV_CC) not installed"; exit 0; fi
 	@$(MAKE) --no-print-directory test-images > /dev/null
@@ -377,6 +413,9 @@ compliance-sram: | dirs
 # Promoting a compliance transcript is only allowed from a run with nothing failing
 # in it, behavioural or macro: recording "39 PASSED / 1 FAILED" as the expectation
 # is how a broken core becomes the reference.
+compliance: check-compliance
+compliance-sram: check-compliance-sram
+
 compliance-baseline: | dirs
 	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
 		echo "compliance-baseline SKIPPED: $(RISCV_CC) not installed"; exit 1; fi
@@ -423,14 +462,38 @@ $(BUILD)/srcs-asic.txt: $(ASIC_F) | dirs
 # see, and it needs its own gate: the SRAM wrappers are not exercised by the
 # simulation filelist at all, and an elaboration error in them would otherwise
 # only ever show up in a real tapeout flow.
+# `check -assert` after `synth`, in both builds.
+#
+# The pass looks for exactly three things - combinatorial loops, a wire with two
+# conflicting drivers, and a used wire with no driver - and -assert turns any of them
+# into a script error, so the failure is non-zero exit status rather than a line in a
+# log nobody re-reads. None of the three shows up as a wrong simulation value in a
+# way that is easy to attribute: an undriven net reads as a constant zero, a
+# multi-driven wire reads as X, and a combinational loop is a simulation artefact
+# that synthesis resolves in whichever order it happens to traverse things. So this
+# is the only gate that would notice an unconnected port added to a module, which is
+# the sort of edit every one of the refactors in this repo's history makes plausible.
+#
+# The plan asked for `check -all`. Yosys 0.23 has no -all; the plain form already
+# covers the same three problems, so -assert is what makes it a gate here. A newer
+# yosys accepts -all for the extra categories (-mapped, -noinit, -initdrv), and this
+# line is where to add them once CI ships that version.
+#
+# Do not delete the problems count in the summary below on the grounds that -assert
+# already fails the script. It does not always: an experiment that left comp32's `eq`
+# undriven made yosys report "Found and reported 1 problems." part-way through
+# synthesis, and the appended `check -assert` on the finished cell netlist then
+# reported 0 and exited 0 - the problem had been optimised into a constant by then.
+# Summing every problems count in the log catches the mid-run report, which is the
+# one that still says what was wrong.
 $(BUILD)/synth-sim.ys: $(BUILD)/srcs-sim.txt | dirs
 	@{ while read -r f; do echo "read_verilog -I$(RTL_DIR) $$f"; done < $<; \
-	   echo "synth -top rv32i_core"; } > $@
+	   echo "synth -top rv32i_core"; echo "check -assert"; } > $@
 
 $(BUILD)/synth-asic.ys: $(BUILD)/srcs-asic.txt | dirs
 	@{ while read -r f; do \
 	       echo "read_verilog -I$(RTL_DIR) -DUSE_SRAM_MEMS -DUSE_POWER_PINS $$f"; \
-	   done < $<; echo "synth -top rv32i_core"; } > $@
+	   done < $<; echo "synth -top rv32i_core"; echo "check -assert"; } > $@
 
 # Run yosys over a generated script and gate on inferred latches.
 # $(1) = yosys script, $(2) = log suffix, $(3) = build name
@@ -439,9 +502,14 @@ $(BUILD)/synth-asic.ys: $(BUILD)/srcs-asic.txt | dirs
 		echo "synth$(2) SKIPPED: $(YOSYS) not installed"; exit 0; \
 	fi
 	@echo "== synth: $(3) build (elaboration + cell stats) =="
-	@$(YOSYS) -s $(1) > $(BUILD)/synth$(2).log 2>&1 \
-		|| { tail -25 $(BUILD)/synth$(2).log; exit 1; }
-	@awk '/^ +Number of cells:/{c+=$$4} /DLATCH/{l+=$$2} /^[ ]+[^ ]*([Dd][Ff][Ff])[^ ]* +[0-9]+/{d+=$$2} END{printf "  total cells : %d\n  total flops : %d\n  latches     : %d\n", c, d, l}' $(BUILD)/synth$(2).log
+	@$(YOSYS) -s $(1) > $(BUILD)/synth$(2).log 2>&1 || { \
+		echo "yosys exited non-zero; the relevant lines are:"; \
+		grep -nE "ERROR:|Found and reported [1-9]|latch inferred for" \
+			$(BUILD)/synth$(2).log | tail -10; exit 1; }
+	@awk '/^ +Number of cells:/{c+=$$4} /DLATCH/{l+=$$2} /^[ ]+[^ ]*([Dd][Ff][Ff])[^ ]* +[0-9]+/{d+=$$2} /Found and reported/{p+=$$4} END{printf "  total cells : %d\n  total flops : %d\n  latches     : %d\n  check problems (any pass): %d\n", c, d, l, p}' $(BUILD)/synth$(2).log
+	@if test "$$(awk '/Found and reported/{p+=$$4} END{print p+0}' $(BUILD)/synth$(2).log)" != "0"; then \
+		echo "GATE FAIL: yosys check found structural problems in the $(3) build"; \
+		grep -A4 "Executing CHECK" $(BUILD)/synth$(2).log | tail -20; exit 1; fi
 	@if test "$$(awk '/DLATCH/{d+=$$2} END{print d+0}' $(BUILD)/synth$(2).log)" != "0"; then \
 		echo "GATE FAIL: yosys inferred at least one latch in the $(3) build"; exit 1; fi
 	@echo "synth$(2) OK (full log: $(BUILD)/synth$(2).log)"
