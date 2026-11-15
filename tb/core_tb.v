@@ -33,6 +33,10 @@ module core_tb;
         end
     endfunction
 
+    // Note the 16-character name field: a longer string is not truncated with an
+    // ellipsis, it keeps its LAST 16 characters - so a name of 19 characters arrives
+    // missing its first three. Nothing fails, and a transcript becomes harder to grep
+    // for the test that produced it, so keep names inside the field.
     task check_reg;
         input [4:0]   rnum;
         input [31:0]  expected;
@@ -350,39 +354,75 @@ module core_tb;
     // This is a documented deviation from RV32I, which permits straddling
     // accesses: here they are truncated rather than wrapped or trapped, because a
     // single-port SRAM cannot write two words in one cycle. See dmem_w_lanes.v.
-    task test_unaligned;
+    // Test 10: sub-word placement, on the addresses the architecture permits.
+    //
+    // This test used to pin something the architecture does not permit. It stored
+    // and loaded at misaligned addresses and asserted that the access was truncated
+    // to its containing word - a contract this core invented, documented as a
+    // deviation, and enforced by nothing but these checks. Misaligned accesses are
+    // exceptions now (tb/directed_tb.v D7 covers them, with their causes), so the
+    // truncation cases are gone and what is left is the part that always needed
+    // pinning and never got it properly: on an aligned access, does each width put
+    // its bytes in the lanes it should, and leave every lane it should not alone.
+    //
+    // Byte lanes are where a store's write mask is derived from funct3 and the two
+    // low address bits, and the read side reassembles fields from the same pair, so
+    // a mistake shows up as a neighbour byte changing rather than as the accessed
+    // one being wrong. Hence the checks on mem[0x004] and mem[0x1ff8]: the words the
+    // stores must not have touched.
+    //
+    // The last store goes to 0x1ffc, the top word of the 8 KiB memory. That is also
+    // the last word the four-bank bank-select decode has to get right; the rest of
+    // the boundaries are covered by make mem-agree, which compares the behavioural
+    // model against the macros at every one of them.
+    task test_subword_lanes;
         begin
-            $display("\n--- Test 10: Unaligned access contract ---");
+            $display("\n--- Test 10: aligned sub-word lane placement ---");
             rst = 1;
             clear_mem;
-            `IMEM[0]  = 32'h00000093; // ADDI x1, x0, 0      # data base address
-            `IMEM[1]  = 32'h0ab00113; // ADDI x2, x0, 0xAB
-            `IMEM[2]  = 32'h002080a3; // SB   x2, 1(x1)      # mem[1] = AB
-            `IMEM[3]  = 32'h01100113; // ADDI x2, x0, 0x11
-            `IMEM[4]  = 32'h002081a3; // SB   x2, 3(x1)      # mem[3] = 11
-            `IMEM[5]  = 32'h02200113; // ADDI x2, x0, 0x22
-            `IMEM[6]  = 32'h00208223; // SB   x2, 4(x1)      # mem[4] = 22, next word
-            `IMEM[7]  = 32'h03300113; // ADDI x2, x0, 0x33
-            `IMEM[8]  = 32'h002083a3; // SB   x2, 7(x1)      # mem[7] = 33
-            `IMEM[9]  = 32'h0000a183; // LW   x3, 0(x1)      # aligned
-            `IMEM[10] = 32'h0030d203; // LHU  x4, 3(x1)      # half in range only
-            `IMEM[11] = 32'h0010a283; // LW   x5, 1(x1)      # -> containing word
-            `IMEM[12] = 32'h34400113; // ADDI x2, x0, 0x344   # halfword 0x0344
-            `IMEM[13] = 32'h002091a3; // SH   x2, 3(x1)      # only byte 3 is in range
-            `IMEM[14] = 32'h0040c303; // LBU  x6, 4(x1)      # did SH spill here?
-            `IMEM[15] = 32'h7ff00093; // ADDI x1, x0, 2047
-            `IMEM[16] = 32'h7fd08093; // ADDI x1, x1, 2045   # x1 = 4092
-            `IMEM[17] = 32'hdeadb137; // LUI  x2, 0xDEADB
-            `IMEM[18] = 32'h0ef10113; // ADDI x2, x2, 239    # 0xDEADB0EF
-            `IMEM[19] = 32'h0020a1a3; // SW   x2, 3(x1)      # address 4095
+            // x1 = data base (0), x2 = the value being stored, x7 = top of memory.
+            // Bytes after the byte stores: mem[0]=AB mem[3]=11 mem[4]=22 mem[7]=33,
+            // so word 0 is 0x110000ab and word 1 is 0x33000022.
+            `IMEM[ 0] = 32'h00000093; // ADDI x1, x0, 0
+            `IMEM[ 1] = 32'h0ab00113; // ADDI x2, x0, 0xAB
+            `IMEM[ 2] = 32'h00208023; // SB   x2, 0(x1)
+            `IMEM[ 3] = 32'h01100113; // ADDI x2, x0, 0x11
+            `IMEM[ 4] = 32'h002081a3; // SB   x2, 3(x1)
+            `IMEM[ 5] = 32'h02200113; // ADDI x2, x0, 0x22
+            `IMEM[ 6] = 32'h00208223; // SB   x2, 4(x1)   crosses into word 1
+            `IMEM[ 7] = 32'h03300113; // ADDI x2, x0, 0x33
+            `IMEM[ 8] = 32'h002083a3; // SB   x2, 7(x1)
+            // The three widths reading the same word, and a byte that must come back
+            // sign-extended (0xAB is negative as an s8).
+            `IMEM[ 9] = 32'h0000a183; // LW   x3, 0(x1)   0x110000ab
+            `IMEM[10] = 32'h0020d203; // LHU  x4, 2(x1)   upper half, 0x00001100
+            `IMEM[11] = 32'h0000d283; // LHU  x5, 0(x1)   lower half, 0x000000ab
+            `IMEM[12] = 32'h00008303; // LB   x6, 0(x1)   0xffffffab, sign-extended
+            // Halfword stores at both aligned offsets. Neither may disturb the
+            // other half, which is the half the other one owns.
+            `IMEM[13] = 32'h34400113; // ADDI x2, x0, 0x344
+            `IMEM[14] = 32'h00209023; // SH   x2, 0(x1)   bytes 0,1
+            `IMEM[15] = 32'h22200113; // ADDI x2, x0, 0x222
+            `IMEM[16] = 32'h00209123; // SH   x2, 2(x1)   bytes 2,3 -> word 0x02220344
+            // Top of memory: x7 = 0x2000 - 4.
+            `IMEM[17] = 32'h000023b7; // LUI  x7, 0x2
+            `IMEM[18] = 32'hffc38393; // ADDI x7, x7, -4  x7 = 0x1ffc
+            `IMEM[19] = 32'hdeadb137; // LUI  x2, 0xDEADB
+            `IMEM[20] = 32'h0ef10113; // ADDI x2, x2, 239 x2 = 0xDEADB0EF
+            `IMEM[21] = 32'h0023a023; // SW   x2, 0(x7)
             release_reset;
-            run_cycles(32);
-            check_reg(3, 32'h1100ab00, "LW aligned 0");
-            check_reg(4, 32'h00000011, "LHU top byte");
-            check_reg(5, 32'h1100ab00, "LW unaligned 1");
-            check_reg(6, 32'h00000022, "SH no spill");
-            check_mem_word(12'h000, 32'h4400ab00, "SH low byte lands");
-            check_mem_word(12'hffc, 32'hdeadb0ef, "SW at 4095");
+            // 22 instructions through a six-stage pipeline, with no load feeding
+            // anything; generous on purpose. The cycle count is not part of the
+            // golden transcript, so a budget here costs nothing but time.
+            run_cycles(48);
+            check_reg(3, 32'h1100_00ab, "LW word 0");
+            check_reg(4, 32'h0000_1100, "LHU upper half");
+            check_reg(5, 32'h0000_00ab, "LHU lower half");
+            check_reg(6, 32'hffff_ffab, "LB sign-extends");
+            check_mem_word(12'h000, 32'h0222_0344, "two SH, no spill");
+            check_mem_word(12'h004, 32'h3300_0022, "SB to next word");
+            check_mem_word(13'h1ffc, 32'hdead_b0ef, "SW at mem top");
+            check_mem_word(13'h1ff8, 32'h0000_0000, "neighbour clean");
         end
     endtask
 
@@ -408,7 +448,7 @@ module core_tb;
         test_upper_imm;
         test_x0;
         test_bge;
-        test_unaligned;
+        test_subword_lanes;
 
         $display("\n========================================");
         if (failed == 0)

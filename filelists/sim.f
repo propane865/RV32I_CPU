@@ -22,6 +22,7 @@ rtl/shifter.v
 rtl/comp32.v
 rtl/branch_unit.v
 rtl/hazard_unit.v
+rtl/trap_unit.v
 rtl/forwarding_unit.v
 rtl/pipe_if_id.v
 rtl/pipe_id_ex.v

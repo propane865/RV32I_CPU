@@ -3,12 +3,31 @@
 //
 // Carries the executed instruction into the memory stage.
 //
-// There is deliberately no flush input: a branch or jump resolved in execute 2
-// squashes only the two younger slots (IF/ID and ID/EX). Everything already in
-// EX/MEM and MEM/WB is older than the branch and must retire normally.
+// WHY THIS REGISTER NOW HAS A FLUSH INPUT
+//
+// It used to have none, and the reason was sound for the instructions that
+// existed then: the only thing that could disturb the pipeline behind execute 2
+// was a taken branch or jump, and that squashes only the two YOUNGER slots (IF/ID
+// and ID/EX). Everything reaching this register is older than the branch, so
+// everything here must retire normally, and a flush input would have been an
+// invitation to squash something that must not be squashed.
+//
+// An exception is the second thing that resolves in execute 2, and it is the
+// opposite case: the trapping instruction is the one in execute 2 itself, and it
+// must not retire at all. Its memory write, its register write and its link value
+// all have to be suppressed - and by the time the exception is known, its
+// effective address and its store data are sitting right here at the input. This
+// register is the last place that can stop them, so this is where the flush goes.
+//
+// The flush takes a bubble, exactly as the other staging registers do: a store
+// with its enable cleared, a load or ALU result with its write-back enable
+// cleared, and rd zeroed so that even a mis-muxed writeback downstream could not
+// find a register to corrupt. Older instructions, already in MEM/WB, are untouched
+// and retire normally - which is what makes the exception precise.
 module pipe_ex_mem (
     input  wire        clk,
     input  wire        rst,
+    input  wire        flush,   // the instruction in execute 2 raised an exception
 
     input  wire [31:0] i_alu_out,
     input  wire [31:0] i_rs2_data,
@@ -53,7 +72,7 @@ module pipe_ex_mem (
     reg [W-1:0] q;
 
     always @(posedge clk) begin
-        q <= rst ? BUBBLE : pack;
+        q <= (rst || flush) ? BUBBLE : pack;
     end
 
     assign { o_alu_out, o_rs2_data, o_pc_plus4,

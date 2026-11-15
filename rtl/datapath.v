@@ -8,34 +8,79 @@
 //
 // This file holds no control policy of its own any more: decode is in
 // control.v, branch resolution in branch_unit.v, hazard policy in
-// hazard_unit.v, and every staging register in its own pipe_*.v. What is left
-// here is the interconnection and the two muxes the stages share (operand
-// forwarding and writeback selection).
+// hazard_unit.v, exception detection in trap_unit.v, and every staging register
+// in its own pipe_*.v. What is left here is the interconnection, the two muxes
+// the stages share (operand forwarding and writeback selection), and the one
+// piece of state that has no module of its own because it is three flops and a
+// comparison: the record of the exception that stopped this machine.
 //
 // The testbench pokes the memories and register file through the IMEM, DMEM and
 // RF instance names, so those three instance names must not change.
-module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dmem_rdata, output [1:0] dmem_width, output dmem_w_ena);
+// Included before the module header rather than inside it: the exception width is
+// used in the port list, and a `define is only in effect from the line it appears
+// on, so a macro a port list depends on cannot be defined by the module body.
+`include "defines.vh"
+
+module datapath(
+    input  clk, rst,
+    output [31:0] pc_out, dmem_addr, dmem_wdata, dmem_rdata,
+    output [1:0]  dmem_width,
+    output        dmem_w_ena,
+    // The exception report. `trap` says one happened and stays set until reset;
+    // `trap_cause` says which of the six it was (`TRAP_* in defines.vh) and
+    // `trap_pc` the address of the instruction that raised it. Together they are
+    // the whole external interface of a core that has no handler to enter: no
+    // CSRs, no mcause, no mret, so the machine stops here and says why.
+    output        trap,
+    output [`TRAP_CAUSE_W-1:0] trap_cause,
+    output [31:0] trap_pc
+);
     `include "defines.vh"
 
     wire        stall_pc, stall_if_id, flush_if_id, flush_id_ex, flush_ex1_ex2;
     wire [1:0]  forward_a, forward_b;
 
-    // Core stop. Held low until the trap path exists: a trap is detected in
-    // execute 2, one stage after a redirect, and stopping the fetch is the only
-    // thing that keeps a stopped core from putting another instruction in flight.
-    // See rtl/trap_unit.v for the logic that will drive it.
-    wire halt = 1'b0;
+    // ===============================================Exceptions================
+    // Declared at the top because the fetch stage below consumes all three, and a
+    // net referenced by an instantiation must be visible where it is used or
+    // iverilog binds it as an implicit one-bit wire (same reason as the forwarding
+    // sources in stage 3).
+    //
+    // `trap_now` is combinational and lasts one cycle: the cycle whose instruction
+    // in execute 2 raised the exception, which is the cycle that instruction would
+    // otherwise have spent in the memory stage. The rest is what outlives it.
+    wire                   trap_now;
+    wire [`TRAP_CAUSE_W-1:0] trap_now_cause;
+
+    reg                    trap_q;
+    reg [`TRAP_CAUSE_W-1:0] trap_cause_q;
+    reg [31:0]             trap_pc_q;
+
+    // Stopping the fetch is the whole of the stop. With the PC frozen and bubbles
+    // injected behind it - see discard_younger, in the execute 2 stage - the
+    // pipeline drains forward through MEM and WB and nothing new enters: every
+    // instruction older than the exception retires, the trapping one writes
+    // nothing, and nothing younger starts. That is what makes the exception
+    // precise, and it needs no bookkeeping about which instruction is which.
+    wire halt;
 
     // ===============================================Stage 1 - Fetch===========
     wire [31:0] pc_current, pc_target, instr_if;
-    wire        pc_src;
+    // The transfer the branch unit is asking for, and the one the fetch actually
+    // performs. They differ only for an instruction that traps: a taken branch to
+    // a misaligned address must NOT transfer control, and a branch that does
+    // transfer control is by definition not the misaligned one. Gating here rather
+    // than inside the branch unit keeps that unit's job to one question - is the
+    // condition met, and where would it go - and keeps the answer to "may it go"
+    // next to the thing that says no.
+    wire ex2_redirect, redirect;
 
     pc PC(
         .clk      (clk),
         .rst      (rst),
         .stall    (stall_pc),
         .halt     (halt),
-        .pc_src   (pc_src),
+        .pc_src   (redirect),
         .pc_target(pc_target),
         .pc_out   (pc_current)
     );
@@ -71,6 +116,11 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
                 id_reg_w_ena, id_mem_w_ena, id_mem_r_ena, id_mem_signed,
                 id_uses_rs1, id_uses_rs2,
                 id_branch, id_jump, id_jalr;
+    // The decode's verdicts about the encoding rather than about execution. An
+    // illegal instruction has already been made inert by rtl/control.v, which
+    // asserts nothing for it; what travels down the pipeline is the reason it was
+    // inert, which is what the exception report in execute 2 is made of.
+    wire        id_illegal, id_is_ecall, id_is_ebreak;
     wire [1:0]  id_wb_sel, id_mem_width, id_alu_src_a;
     wire [3:0]  id_alu_op;
     wire [2:0]  id_imm_sel, id_branch_cond;
@@ -99,10 +149,9 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         // control.v calls illegal already asserts nothing at all, which is why the
         // pins are empty rather than tied into a control path - the consumer is the
         // exception report, which is not a control signal of this core.
-        .illegal    (),
-        .is_fence   (),
-        .is_ecall   (),
-        .is_ebreak  ()
+        .illegal    (id_illegal),
+        .is_ecall   (id_is_ecall),
+        .is_ebreak  (id_is_ebreak)
     );
 
     reg [31:0]  wb_data;      // writeback mux output, driven in stage 6
@@ -129,7 +178,8 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire [4:0]  idex_rs1, idex_rs2, idex_rd;
     wire        idex_alu_src, idex_cmp_sgn,
                 idex_reg_w_ena, idex_mem_w_ena, idex_mem_r_ena, idex_mem_signed,
-                idex_branch, idex_jump, idex_jalr;
+                idex_branch, idex_jump, idex_jalr,
+                idex_illegal, idex_is_ecall, idex_is_ebreak;
     wire [1:0]  idex_wb_sel, idex_mem_width, idex_alu_src_a;
     wire [3:0]  idex_alu_op;
     wire [2:0]  idex_branch_cond;
@@ -154,6 +204,9 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_branch       (id_branch),
         .i_jump         (id_jump),
         .i_jalr         (id_jalr),
+        .i_illegal      (id_illegal),
+        .i_is_ecall     (id_is_ecall),
+        .i_is_ebreak    (id_is_ebreak),
         .i_wb_sel       (id_wb_sel),
         .i_mem_width    (id_mem_width),
         .i_alu_src_a    (id_alu_src_a),
@@ -175,6 +228,9 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .o_branch       (idex_branch),
         .o_jump         (idex_jump),
         .o_jalr         (idex_jalr),
+        .o_illegal      (idex_illegal),
+        .o_is_ecall     (idex_is_ecall),
+        .o_is_ebreak    (idex_is_ebreak),
         .o_wb_sel       (idex_wb_sel),
         .o_mem_width    (idex_mem_width),
         .o_alu_src_a    (idex_alu_src_a),
@@ -282,6 +338,10 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     wire [2:0]  ex1ex2_branch_cond;
     wire [1:0]  ex1ex2_wb_sel, ex1ex2_mem_width;
     wire        ex1ex2_reg_w_ena, ex1ex2_mem_w_ena, ex1ex2_mem_r_ena, ex1ex2_mem_signed;
+    // The decode verdicts travel one stage further than the hazard unit needs them:
+    // the exception they describe is raised here, in execute 2, and by then this is
+    // all that is left of the encoding (rtl/pipe_ex1_ex2.v).
+    wire        ex1ex2_illegal, ex1ex2_is_ecall, ex1ex2_is_ebreak;
     wire        ex1ex2_jump, ex1ex2_jalr, ex1ex2_branch;
     wire        ex1ex2_gt, ex1ex2_lt, ex1ex2_eq;
 
@@ -301,6 +361,9 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_mem_signed  (idex_mem_signed),
         .i_jump        (idex_jump),
         .i_jalr        (idex_jalr),
+        .i_illegal     (idex_illegal),
+        .i_is_ecall    (idex_is_ecall),
+        .i_is_ebreak   (idex_is_ebreak),
         .i_branch      (idex_branch),
         .i_gt          (ex_gt_b),
         .i_lt          (ex_lt_b),
@@ -320,6 +383,9 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .o_mem_signed  (ex1ex2_mem_signed),
         .o_jump        (ex1ex2_jump),
         .o_jalr        (ex1ex2_jalr),
+        .o_illegal     (ex1ex2_illegal),
+        .o_is_ecall    (ex1ex2_is_ecall),
+        .o_is_ebreak   (ex1ex2_is_ebreak),
         .o_branch      (ex1ex2_branch),
         .o_gt          (ex1ex2_gt),
         .o_lt          (ex1ex2_lt),
@@ -346,10 +412,81 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_pc         (ex1ex2_pc),
         .i_rs1_data   (ex1ex2_rs1_data),
         .i_imm        (ex1ex2_imm),
-        .o_redirect   (pc_src),
+        .o_redirect   (ex2_redirect),
         .o_target     (pc_target),
         .o_pc_plus4   (ex_pc_plus4)
     );
+
+    // ===============================================Exception detect==========
+    // The exception itself is decided in rtl/trap_unit.v, combinationally, from
+    // what decode said about this instruction and the two addresses execute 2 has
+    // just computed. Everything below is the consequence of that one cycle.
+    //
+    // Three separate effects, because an exception has to stop three different
+    // things happening, and no single one of them covers the others:
+    //
+    //   1. this instruction must not act     - the flush below, into EX/MEM, which
+    //      is where its store enable, its write-back enable and its link value all
+    //      still can be stopped;
+    //   2. nothing younger may act          - discard_younger, the same injection a
+    //      redirect performs, since the two instructions behind a trapping one were
+    //      fetched from a path that is now abandoned;
+    //   3. nothing older may be disturbed   - deliberately nothing: MEM and WB keep
+    //      running, so older instructions retire, which is what "precise" means.
+    trap_unit TRAP(
+        .i_illegal    (ex1ex2_illegal),
+        .i_is_ecall   (ex1ex2_is_ecall),
+        .i_is_ebreak  (ex1ex2_is_ebreak),
+        .i_mem_r_ena  (ex1ex2_mem_r_ena),
+        .i_mem_w_ena  (ex1ex2_mem_w_ena),
+        .i_mem_width  (ex1ex2_mem_width),
+        .i_addr_lo    (ex1ex2_alu_out[1:0]),  // the effective address, EX1's result
+        .i_redirect   (ex2_redirect),         // a transfer this instruction wants
+        .i_target_lo  (pc_target[1:0]),
+        .o_trap       (trap_now),
+        .o_cause      (trap_now_cause)
+    );
+
+    // A trapped instruction does not transfer control. The case that makes this
+    // load-bearing is a taken branch or jump to a misaligned address: the condition
+    // is met and the target is computed, so the branch unit asks for the transfer in
+    // the same cycle that the target's misalignment is reported. Doing it anyway
+    // would jump past the exception, and the reported PC would name an instruction
+    // that was never allowed to have an effect.
+    assign redirect = ex2_redirect & ~trap_now;
+
+    // Slots younger than execute 2 are discarded for any of three reasons, and the
+    // hazard unit is the one that injects the bubbles, so it is told about all
+    // three. A redirect discards them because they came from the wrong path. An
+    // exception discards them for the same reason plus one: the machine is stopping,
+    // and an instruction already in flight past the trapping one would retire after
+    // an exception that architecturally stopped the machine before it. And once
+    // stopped, the front end must keep injecting, or the frozen PC would refill the
+    // pipeline with the same instruction over and over - which, since the trapping
+    // instruction is the one that stays in front of the machine's eye, would look
+    // exactly like an exception that fires every cycle.
+    wire discard_younger = ex2_redirect | trap_now | halt;
+
+    // Stopping the fetch is the whole of the stop: see the note on `halt` above.
+    assign halt = trap_q;
+
+    // One record per machine, kept until reset. The PC stored with it is the
+    // trapping instruction's own address, not the target it was denied - a report
+    // that said where the core would have gone would describe something that did not
+    // happen. `ex1ex2_pc` is the PC that travelled with the instruction, so this
+    // stays true for a branch (whose own PC is not pc_current), a JAL, or anything
+    // that reached execute 2 out of step with the fetch.
+    always @(posedge clk) begin
+        if (rst) begin
+            trap_q       <= 1'b0;
+            trap_cause_q <= {`TRAP_CAUSE_W{1'b0}};
+            trap_pc_q    <= 32'h0;
+        end else if (trap_now) begin
+            trap_q       <= 1'b1;
+            trap_cause_q <= trap_now_cause;
+            trap_pc_q    <= ex1ex2_pc;
+        end
+    end
 
     // (exmem_alu_out is declared with the forwarding sources, in stage 3.)
     wire [31:0] exmem_rs2_data;
@@ -360,6 +497,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     pipe_ex_mem EX_MEM(
         .clk          (clk),
         .rst          (rst),
+        .flush        (trap_now),
         .i_alu_out    (ex1ex2_alu_out),
         .i_rs2_data   (ex1ex2_rs2_data),
         .i_pc_plus4   (ex_pc_plus4),
@@ -442,7 +580,7 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .i_id_rs2              (id_rs2),
         .i_id_uses_rs1         (id_uses_rs1),
         .i_id_uses_rs2         (id_uses_rs2),
-        .i_pc_redirect         (pc_src),
+        .i_discard_younger     (discard_younger),
         .o_stall_pc      (stall_pc),
         .o_stall_if_id   (stall_if_id),
         .o_flush_if_id   (flush_if_id),
@@ -473,4 +611,10 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     assign dmem_rdata = mem_rdata;
     assign dmem_w_ena = exmem_mem_w_ena;
     assign dmem_width = exmem_mem_width;
+
+    // The exception report. Sticky, so that a harness can look at it any time
+    // after the fact rather than sampling the one cycle it happened.
+    assign trap       = trap_q;
+    assign trap_cause = trap_cause_q;
+    assign trap_pc    = trap_pc_q;
 endmodule

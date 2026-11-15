@@ -789,14 +789,48 @@ module directed_tb;
     // =========================================================================
     localparam integer ILLEGAL_W = 8;
 
-    task illegal_case;
+    // Sentinel for "this encoding must not raise anything". The cause codes are the
+    // architectural ones and occupy 0..11, so 15 is free and, unlike a 0 or 1, it
+    // cannot be mistaken for a cause that happened to be reported.
+    localparam [`TRAP_CAUSE_W-1:0] NO_TRAP = {`TRAP_CAUSE_W{1'b1}};
+
+    // The one program shape every encoding case uses.
+    //
+    //   word 0..5  setup: x2 = 0x200 (load/store base), x3 = 0x100, x4 = 0x22,
+    //              x7 = 2 (a shift amount), x8 = 0x50, x9 = 0x400 (store base);
+    //              mem[0x200] = 0xABCD, mem[0x400] = 0
+    //   word 7     lw x14, 0(x2)     - older than the encoding under test
+    //   word 8     the encoding under test, always writing x10 if it writes anything
+    //   word 9     addi x11, x0, 5   - runs iff execution fell through
+    //   word 10    jal x0, +44       - steps over the redirect marker below
+    //   word 20    addi x12, x0, 99  - runs iff something transferred to 0x50
+    //
+    // Six things are then checked, and each one rules out a different way an
+    // exception path can be wrong:
+    //
+    //   x10  nothing was written by an instruction that must not have written
+    //   x11  nothing YOUNGER ran - the flush behind an exception is what makes it
+    //        precise, and a core that reports the exception and then keeps going is
+    //        the failure mode this catches
+    //   x12  nothing transferred control to the address the exception is about
+    //   mem  no store reached memory
+    //   x14  an OLDER instruction still retired - the other half of precise, and
+    //        invisible to every other check here
+    //   cause, trap_pc  what is reported, and about which instruction
+    //
+    // The jump marker needs the skip above it: without the `jal`, execution walks
+    // into word 20 on its own and "the redirect marker ran" stops meaning anything.
+    task enc_case;
         input [255:0] base;
         input [31:0]  instr;
-        input [31:0]  exp_x10;    // the suspect instruction's rd
-        input [31:0]  exp_x11;    // fall-through marker
-        input [31:0]  exp_x12;    // redirect marker, at byte 0x50
+        input [31:0]  exp_x10;
+        input [31:0]  exp_x11;
+        input [31:0]  exp_x12;
         input [31:0]  exp_mem400;
+        input [`TRAP_CAUSE_W-1:0] exp_cause;
         integer j;
+        reg trapped;
+        reg wanted;
         begin
             rst = 1;
             clear_all;
@@ -805,152 +839,342 @@ module directed_tb;
             `IMEM[2] = enc_i(X4_VAL[11:0],      5'd0, 3'h0, 5'd4);
             `IMEM[3] = enc_i(JUMP_TARGET[11:0], 5'd0, 3'h0, 5'd8);
             `IMEM[4] = enc_i(STORE_ADDR[11:0],  5'd0, 3'h0, 5'd9);
-            `IMEM[5] = enc_i(12'd2,             5'd0, 3'h0, 5'd7);  // shift amount
-            for (j = 6; j < ILLEGAL_W; j = j + 1) `IMEM[j] = NOP;
+            `IMEM[5] = enc_i(12'd2,             5'd0, 3'h0, 5'd7);
+            `IMEM[6] = NOP;
+            // An older load, deliberately one slot ahead: it is in the memory stage
+            // when the exception below is detected, so it must still retire.
+            `IMEM[ILLEGAL_W-1] = enc_load(12'd0, 5'd2, 3'h2, 5'd14);
             `IMEM[ILLEGAL_W]   = instr;
             `IMEM[ILLEGAL_W+1] = enc_i(12'd5, 5'd0, 3'h0, 5'd11);
-            // Step over the redirect marker so that reaching it means something
-            // redirected there, rather than meaning execution kept going, which it
-            // would in every case. The marker at word 20 is at 0x50; the jump is at
-            // word 10 (0x28) and lands on word 21 (0x54).
             `IMEM[ILLEGAL_W+2] = enc_jal(21'd44, 5'd0);
             `IMEM[JUMP_TARGET[11:2]] = enc_i(12'd99, 5'd0, 3'h0, 5'd12);
             poke(DATA_ADDR,  LOAD_VAL);
             poke(STORE_ADDR, 32'h0000_0000);
             release_reset;
             run_cycles(60);
-            check_reg(5'd10, exp_x10, base);
+            trapped = (DUT.trap === 1'b1);
+            // Parenthesised because `!=` and `!==` are the same precedence and chain
+            // left to right: without these, the expression above reads as
+            // "(trapped != exp_cause) !== NO_TRAP", which happens to be non-zero for
+            // most inputs and quietly turns the whole check into a no-op.
+            wanted  = (exp_cause !== NO_TRAP);
+            if (trapped !== wanted) begin
+                $display("FAIL %-14s | trap = %0b cause = %0d | expected trap = %0b cause = %0d",
+                         base, trapped, DUT.trap_cause, exp_cause !== NO_TRAP, exp_cause);
+                failed = failed + 1;
+            end else if (trapped && (DUT.trap_cause !== exp_cause)) begin
+                $display("FAIL %-14s | cause = %0d | expected %0d",
+                         base, DUT.trap_cause, exp_cause);
+                failed = failed + 1;
+            end else if (trapped && (DUT.trap_pc !== ILLEGAL_W * 4)) begin
+                // The report must name the instruction that trapped. PC+4, or the
+                // target it was denied, or the fetch's own ahead-of-itself address
+                // would all be plausible numbers here and all wrong.
+                $display("FAIL %-14s | trap_pc = 0x%08h | expected 0x%08h",
+                         base, DUT.trap_pc, ILLEGAL_W * 4);
+                failed = failed + 1;
+            end else
+                $display("PASS %-14s | trap = %0b cause = %0d pc = 0x%08h",
+                         base, trapped, DUT.trap_cause, DUT.trap_pc);
+            check_reg(5'd10, exp_x10, "  rd untouched");
             check_reg(5'd11, exp_x11, "  fall-through");
             check_reg(5'd12, exp_x12, "  redirect target");
+            check_reg(5'd14, LOAD_VAL, "  older load retired");
             check_mem_word13(STORE_ADDR[12:0], exp_mem400, "  mem[0x400]");
         end
     endtask
 
+    // =========================================================================
+    // D6: encodings that are not instructions, and the exception they report
+    //
+    // Every reject expects cause 2 (illegal instruction) at the encoding's own
+    // address, with nothing written, nothing younger executed and the older load
+    // still retired. Every accept expects exactly the opposite: no exception at
+    // all, and its value.
+    //
+    // There are deliberately more acceptances than a bug-hunter would think is
+    // necessary. A legality rule tested only on its negatives proves nothing, and
+    // an over-eager decoder - rejecting SUB because it saw funct7 = 0x20, or ADDI
+    // because its immediate happened to have bit 5 set - is as wrong as accepting
+    // funct7 = 0x21, and much harder to notice, because the program it breaks is a
+    // legal one.
+    // =========================================================================
     task test_strict_decode;
         begin
             $display("\n--- D6: encodings the decode must reject ---");
-            // ---- positive control: legal, aimed at the same targets, and must
-            // ---- take effect. Everything below asserts "nothing happened", which
-            // ---- is only evidence if something does happen here.
-            illegal_case("legal add",   enc_r(7'h00, 5'd4, 5'd3, 3'h0, 5'd10),
-                         V_ALU_R, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal sw",    enc_s(12'h000, 5'd4, 5'd9, 3'h2),
-                         32'h0, 32'h5, 32'h0, X4_VAL);
+            // ---- positive controls, aimed at the same x10 and the same mem[0x400]
+            // ---- the rejects below check. "Nothing happened" is also what a
+            // ---- program that never ran reports.
+            enc_case("legal add",  enc_r(7'h00, 5'd4, 5'd3, 3'h0, 5'd10),
+                     V_ALU_R, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal sw",   enc_s(12'h000, 5'd4, 5'd9, 3'h2),
+                     32'h0, 32'h5, 32'h0, X4_VAL, NO_TRAP);
 
             // ---- R-type: two funct7 values, and 0x20 belongs to two funct3 ------
-            // ADD with funct7 = 0x21: neither ADD nor SUB, and it used to execute
-            // as ADD - which is why the control above uses non-zero operands.
-            illegal_case("op f7=0x21",  enc_r(7'h21, 5'd4, 5'd3, 3'h0, 5'd10),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            // SUB and SRA are legal with funct7 = 0x20, so they must not be
-            // rejected: a legality rule tested only on its negatives proves
-            // nothing, and a decoder that over-rejects is as wrong as one that
-            // under-rejects.
-            illegal_case("legal sub",   enc_r(7'h20, 5'd4, 5'd3, 3'h0, 5'd10),
-                         X3_VAL - X4_VAL, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal sra",   enc_r(7'h20, 5'd7, 5'd3, 3'h5, 5'd10),
-                         32'h0000_0040, 32'h5, 32'h0, 32'h0);   // x3 >> x7 = 0x100 >> 2
-            // SLL has no alternate form, so 0x20 here is not an instruction.
-            illegal_case("op sll f7=20", enc_r(7'h20, 5'd7, 5'd3, 3'h1, 5'd10),
-                         32'h0, 32'h5, 32'h0, 32'h0);
+            // ADD with funct7 = 0x21: neither ADD nor SUB. Before the strict decode
+            // it executed as SUB, because only bit 5 was read - which is why the
+            // controls above use non-zero operands.
+            enc_case("op f7=0x21", enc_r(7'h21, 5'd4, 5'd3, 3'h0, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("legal sub",  enc_r(7'h20, 5'd4, 5'd3, 3'h0, 5'd10),
+                     X3_VAL - X4_VAL, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal sra",  enc_r(7'h20, 5'd7, 5'd3, 3'h5, 5'd10),
+                     32'h0000_0040, 32'h5, 32'h0, 32'h0, NO_TRAP);  // x3 >> x7
+            // SLL has no alternate form, so funct7 = 0x20 here is not an instruction.
+            enc_case("op sll f7=20", enc_r(7'h20, 5'd7, 5'd3, 3'h1, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
 
-            // ---- I-type shifts: only here are the top seven bits a sub-opcode ---
-            illegal_case("slli f7=01",  enc_i({7'h01, 5'd4}, 5'd3, 3'h1, 5'd10),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("srli f7=01",  enc_i({7'h01, 5'd2}, 5'd3, 3'h5, 5'd10),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            // The same seven bits on ADDI are immediate data. Rejecting this would
-            // be an over-rejection, and it is one instruction's edit away from the
-            // two cases above, which is exactly why it needs to exist.
-            illegal_case("legal addi hi", enc_i({7'h01, 5'd4}, 5'd3, 3'h0, 5'd10),
-                         X3_VAL + 32'h24, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal slli",  enc_i({7'h00, 5'd2}, 5'd3, 3'h1, 5'd10),
-                         32'h0000_0400, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal srli",  enc_i({7'h00, 5'd2}, 5'd3, 3'h5, 5'd10),
-                         32'h0000_0040, 32'h5, 32'h0, 32'h0);
+            // ---- I-type shifts: only here are the top seven bits a sub-opcode ----
+            enc_case("slli f7=01", enc_i({7'h01, 5'd4}, 5'd3, 3'h1, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("srli f7=01", enc_i({7'h01, 5'd2}, 5'd3, 3'h5, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            // The same seven bits on ADDI are immediate data. One bit's edit away
+            // from the two rejects above, and legal.
+            enc_case("legal addi hi", enc_i({7'h01, 5'd4}, 5'd3, 3'h0, 5'd10),
+                     X3_VAL + 32'h24, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal slli", enc_i({7'h00, 5'd2}, 5'd3, 3'h1, 5'd10),
+                     32'h0000_0400, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal srli", enc_i({7'h00, 5'd2}, 5'd3, 3'h5, 5'd10),
+                     32'h0000_0040, 32'h5, 32'h0, 32'h0, NO_TRAP);
 
-            // ---- memory widths: three of the eight funct3 values are not loads,
-            // ---- five are not stores.
-            illegal_case("load f3=3",   enc_load(12'h000, 5'd2, 3'h3, 5'd10),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("load f3=6",   enc_load(12'h000, 5'd2, 3'h6, 5'd10),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("load f3=7",   enc_load(12'h000, 5'd2, 3'h7, 5'd10),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("store f3=3",  enc_s(12'h000, 5'd4, 5'd9, 3'h3),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("store f3=4",  enc_s(12'h000, 5'd4, 5'd9, 3'h4),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("store f3=7",  enc_s(12'h000, 5'd4, 5'd9, 3'h7),
-                         32'h0, 32'h5, 32'h0, 32'h0);
+            // ---- memory widths: three of eight funct3 values are not loads, five
+            // ---- are not stores.
+            enc_case("load f3=3",  enc_load(12'h000, 5'd2, 3'h3, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("load f3=6",  enc_load(12'h000, 5'd2, 3'h6, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("load f3=7",  enc_load(12'h000, 5'd2, 3'h7, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("store f3=3", enc_s(12'h000, 5'd4, 5'd9, 3'h3),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("store f3=4", enc_s(12'h000, 5'd4, 5'd9, 3'h4),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("store f3=7", enc_s(12'h000, 5'd4, 5'd9, 3'h7),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
             // All five loads and all three stores, so the width decode is checked as
-            // a set: it is a slice of funct3, and a constant naming the wrong slot
-            // shows up as a wrong value here rather than as a missing case.
-            illegal_case("legal lb",    enc_load(12'h000, 5'd2, 3'h0, 5'd10),
-                         32'hffff_ffcd, 32'h5, 32'h0, 32'h0);   // sign-extended
-            illegal_case("legal lh",    enc_load(12'h000, 5'd2, 3'h1, 5'd10),
-                         32'hffff_abcd, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal lw",    enc_load(12'h000, 5'd2, 3'h2, 5'd10),
-                         LOAD_VAL, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal lbu",   enc_load(12'h000, 5'd2, 3'h4, 5'd10),
-                         32'h0000_00cd, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal lhu",   enc_load(12'h000, 5'd2, 3'h5, 5'd10),
-                         32'h0000_abcd, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal sb",    enc_s(12'h000, 5'd4, 5'd9, 3'h0),
-                         32'h0, 32'h5, 32'h0, 32'h0000_0022);
-            illegal_case("legal sh",    enc_s(12'h000, 5'd4, 5'd9, 3'h1),
-                         32'h0, 32'h5, 32'h0, 32'h0000_0022);
+            // a set. It is a slice of funct3, and a constant naming the wrong slot
+            // shows up here as a wrong value rather than as a missing case.
+            enc_case("legal lb",   enc_load(12'h000, 5'd2, 3'h0, 5'd10),
+                     32'hffff_ffcd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal lh",   enc_load(12'h000, 5'd2, 3'h1, 5'd10),
+                     32'hffff_abcd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal lw",   enc_load(12'h000, 5'd2, 3'h2, 5'd10),
+                     LOAD_VAL, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal lbu",  enc_load(12'h000, 5'd2, 3'h4, 5'd10),
+                     32'h0000_00cd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal lhu",  enc_load(12'h000, 5'd2, 3'h5, 5'd10),
+                     32'h0000_abcd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("legal sb",   enc_s(12'h000, 5'd4, 5'd9, 3'h0),
+                     32'h0, 32'h5, 32'h0, 32'h0000_0022, NO_TRAP);
+            enc_case("legal sh",   enc_s(12'h000, 5'd4, 5'd9, 3'h1),
+                     32'h0, 32'h5, 32'h0, 32'h0000_0022, NO_TRAP);
 
             // ---- branch funct3 holes -------------------------------------------
-            // funct3 2 and 3 are not branches, but nothing here can distinguish
-            // them, because the branch unit's own default for an unknown condition
-            // is also "not taken" - so execution falls through either way. What
-            // distinguishes them is the reported cause, asserted with the trap path;
-            // until then these two pin only that nothing else happens, and are
-            // labelled as doing exactly that.
-            illegal_case("branch f3=2", enc_b(13'd8, 5'd0, 5'd0, 3'h2),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("branch f3=3", enc_b(13'd8, 5'd0, 5'd0, 3'h3),
-                         32'h0, 32'h5, 32'h0, 32'h0);
+            // funct3 2 and 3 are not branches. Before the exception path existed
+            // these two could not be told apart at all - the branch unit's own
+            // default for an unknown condition is also "not taken", so execution
+            // fell through either way. The exception is what distinguishes them, and
+            // the fall-through check (x11 = 0) is what shows the core stopped rather
+            // than quietly continued.
+            enc_case("branch f3=2", enc_b(13'd8, 5'd0, 5'd0, 3'h2),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("branch f3=3", enc_b(13'd8, 5'd0, 5'd0, 3'h3),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
 
-            // ---- JALR has no sub-encodings, and funct3 = 1 still jumped ---------
-            // rs1 = x0, imm = 0x50, so the un-decoded behaviour is a redirect to the
-            // marker with a link value written to x10: three of the four checks move.
-            illegal_case("jalr f3=1",   enc_jalr_f3(12'h050, 5'd0, 5'd10, 3'h1),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("legal jalr",  enc_jalr(12'h050, 5'd0, 5'd10),
-                         32'h0000_0024, 32'h0, 32'h63, 32'h0);
+            // ---- JALR has no sub-encodings, and funct3 = 1 used to jump ---------
+            enc_case("jalr f3=1",  enc_jalr_f3(12'h050, 5'd0, 5'd10, 3'h1),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("legal jalr", enc_jalr(12'h050, 5'd0, 5'd10),
+                     32'h0000_0024, 32'h0, 32'h63, 32'h0, NO_TRAP);
 
             // ---- opcodes this core does not implement ---------------------------
-            illegal_case("opcode 0x2f",
-                         with_op(enc_r(7'h21, 5'd4, 5'd3, 3'h0, 5'd10), 7'b0101111),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("opcode 0x7f",
-                         with_op(enc_r(7'h00, 5'd4, 5'd3, 3'h0, 5'd10), 7'b1111111),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            illegal_case("opcode 0x0b",
-                         with_op(enc_load(12'h000, 5'd2, 3'h2, 5'd10), 7'b0001011),
-                         32'h0, 32'h5, 32'h0, 32'h0);
+            enc_case("opcode 0x2f",
+                     with_op(enc_r(7'h21, 5'd4, 5'd3, 3'h0, 5'd10), 7'b0101111),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("opcode 0x7f",
+                     with_op(enc_r(7'h00, 5'd4, 5'd3, 3'h0, 5'd10), 7'b1111111),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            enc_case("opcode 0x0b",
+                     with_op(enc_load(12'h000, 5'd2, 3'h2, 5'd10), 7'b0001011),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
 
-            // ---- FENCE: legal, and legal means it must not be rejected ----------
-            // A decoder that rejected FENCE would look identical on every case
-            // above. Its rd field names x10, so this is also the check that a no-op
-            // which names a register leaves it alone - and `fence` writes no
-            // registers, so the defaults are the whole behaviour.
-            illegal_case("fence nop",
-                         with_op(enc_i(12'h000, 5'd0, 3'h0, 5'd10), `RV_OP_FENCE),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            // A CSR read: illegal here, and it must not write the register it names.
-            illegal_case("csrrs",
-                         with_op(enc_i(12'h340, 5'd0, 3'h2, 5'd10), `RV_OP_SYSTEM),
-                         32'h0, 32'h5, 32'h0, 32'h0);
-            // fence.i is SYSTEM with funct3 = 1, not a second flavour of FENCE;
-            // Zifencei is not implemented, so it is illegal.
-            illegal_case("fence.i",
-                         with_op(enc_i(12'h000, 5'd0, 3'h1, 5'd10), `RV_OP_SYSTEM),
-                         32'h0, 32'h5, 32'h0, 32'h0);
+            // ---- FENCE: legal, and legal means it must not be reported ----------
+            // A decoder that rejected FENCE would look correct on every reject above.
+            // Its rd field names x10, so this is also the check that a no-op which
+            // names a register leaves the register alone.
+            enc_case("fence nop",
+                     with_op(enc_i(12'h000, 5'd0, 3'h0, 5'd10), `RV_OP_FENCE),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // A CSR read: this core has no CSRs, so it is illegal rather than a
+            // write to something that is not there - and it must not write the
+            // register it names either.
+            enc_case("csrrs",
+                     with_op(enc_i(12'h340, 5'd0, 3'h2, 5'd10), `RV_OP_SYSTEM),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            // fence.i is SYSTEM with funct3 = 1, not a second flavour of FENCE, and
+            // Zifencei is not implemented.
+            enc_case("fence.i",
+                     with_op(enc_i(12'h000, 5'd0, 3'h1, 5'd10), `RV_OP_SYSTEM),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
         end
     endtask
+
+    // =========================================================================
+    // D7: alignment exceptions, environment calls, and what a trap does to the
+    // machine around it
+    //
+    // The alignment cases are checked at every address offset a load or store can
+    // name, not one per width: a byte access has no misaligned case, a halfword
+    // cares about one address bit and a word about two, and the three rules are
+    // three separate chances to write the wrong mask. For each width there is
+    // therefore an aligned acceptance next to the misaligned rejections - a rule
+    // that rejects everything would pass a suite that only had the rejections.
+    // =========================================================================
+    task test_exceptions;
+        begin
+            $display("\n--- D7: alignment and environment-call exceptions ---");
+            // ---- loads ----------------------------------------------------------------
+            enc_case("lh odd",   enc_load(12'h001, 5'd2, 3'h1, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_LOAD_MISALIGN);
+            enc_case("lw odd1",  enc_load(12'h001, 5'd2, 3'h2, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_LOAD_MISALIGN);
+            enc_case("lw even2", enc_load(12'h002, 5'd2, 3'h2, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_LOAD_MISALIGN);
+            enc_case("lw odd3",  enc_load(12'h003, 5'd2, 3'h2, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_LOAD_MISALIGN);
+            enc_case("lhu odd",  enc_load(12'h001, 5'd2, 3'h5, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_LOAD_MISALIGN);
+            // Byte loads at the same odd addresses: legal, and they read the byte
+            // there. mem[0x201] = 0xAB, so both cases produce a non-zero answer and
+            // neither can pass by writing nothing.
+            enc_case("lbu odd",  enc_load(12'h001, 5'd2, 3'h4, 5'd10),
+                     32'h0000_00ab, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("lb odd",   enc_load(12'h001, 5'd2, 3'h0, 5'd10),
+                     32'hffff_ffab, 32'h5, 32'h0, 32'h0, NO_TRAP);
+
+            // ---- stores ---------------------------------------------------------------
+            enc_case("sh odd",   enc_s(12'h001, 5'd4, 5'd9, 3'h1),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_STORE_MISALIGN);
+            enc_case("sw odd1",  enc_s(12'h001, 5'd4, 5'd9, 3'h2),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_STORE_MISALIGN);
+            enc_case("sw even2", enc_s(12'h002, 5'd4, 5'd9, 3'h2),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_STORE_MISALIGN);
+            enc_case("sw odd3",  enc_s(12'h003, 5'd4, 5'd9, 3'h2),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_STORE_MISALIGN);
+            // The aligned forms of the same two widths, which must store.
+            // Offset 2 rather than 0: the value must land in the upper half of the
+            // word, which is the lane assignment the aligned-only rule leaves legal.
+            enc_case("sh aligned", enc_s(12'h002, 5'd4, 5'd9, 3'h1),
+                     32'h0, 32'h5, 32'h0, 32'h0022_0000, NO_TRAP);
+            enc_case("sw aligned", enc_s(12'h000, 5'd4, 5'd9, 3'h2),
+                     32'h0, 32'h5, 32'h0, 32'h0000_0022, NO_TRAP);
+            enc_case("sb odd ok",  enc_s(12'h003, 5'd4, 5'd9, 3'h0),
+                     32'h0, 32'h5, 32'h0, 32'h2200_0000, NO_TRAP);
+
+            // ---- instruction address --------------------------------------------------
+            // A B-type immediate is always even, so the only misaligned targets a
+            // branch can name are the even-but-not-word-aligned ones. +6 from 0x20 is
+            // 0x26: the condition is true, so this really would transfer control.
+            enc_case("beq target 0x26", enc_b(13'd6, 5'd0, 5'd0, 3'h0),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_INSTR_MISALIGN);
+            enc_case("jal target 0x26", enc_jal(21'd6, 5'd10),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_INSTR_MISALIGN);
+            // A branch that is NOT taken has no target to check, even one whose
+            // offset would have been misaligned: the exception is about the transfer,
+            // not about the encoding.
+            enc_case("beq not taken", enc_b(13'd6, 5'd3, 5'd4, 3'h0),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // JALR clears bit 0 of the sum BEFORE the alignment rule is applied,
+            // which is the architectural order. (rs1 + imm) = 0x201 becomes 0x200 and
+            // is aligned, so this must not report anything; 0x203 becomes 0x202 and
+            // must. Checking the unmasked sum would flag the first as an exception,
+            // and `jalr rs1, 1(rs2)` is a legal instruction.
+            enc_case("jalr mask ok",  enc_jalr(12'h001, 5'd2, 5'd0),
+                     32'h0, 32'h0, 32'h0, 32'h0, NO_TRAP);
+            enc_case("jalr mask bad", enc_jalr(12'h003, 5'd2, 5'd0),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_INSTR_MISALIGN);
+            // A taken transfer to a properly aligned address, as the control.
+            // The positive control for the transfer rule: +48 from 0x20 is 0x50, the
+            // marker, word-aligned, so this jump must happen - link value written,
+            // fall-through flushed, marker reached. Without it, "no exception for an
+            // aligned target" would be satisfied just as well by a core that never
+            // jumped anywhere.
+            enc_case("jal aligned",   enc_jal(21'd48, 5'd10),
+                     32'h0000_0024, 32'h0, 32'h63, 32'h0, NO_TRAP);
+
+            // ---- environment calls ----------------------------------------------------
+            // Both name x10 in their rd field, which no ECALL or EBREAK has any
+            // business writing. Everything after them is flushed and the machine
+            // stops: the fall-through marker must not run.
+            enc_case("ecall",
+                     with_op(enc_i(12'h000, 5'd0, 3'h0, 5'd10), `RV_OP_SYSTEM),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ECALL_M);
+            enc_case("ebreak",
+                     with_op(enc_i(12'h001, 5'd0, 3'h0, 5'd10), `RV_OP_SYSTEM),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_BREAKPOINT);
+            // ECALL with the fields that would make it a CSR write if funct3 were
+            // not zero: SYSTEM's sub-opcode field is what separates them, so this is
+            // the pair that keeps "ECALL is legal" from meaning "anything with this
+            // opcode is legal".
+            enc_case("system f3=4",
+                     with_op(enc_i(12'h000, 5'd0, 3'h4, 5'd10), `RV_OP_SYSTEM),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+            // ECALL with a non-zero immediate is not ECALL either.
+            enc_case("system imm 2",
+                     with_op(enc_i(12'h002, 5'd0, 3'h0, 5'd10), `RV_OP_SYSTEM),
+                     32'h0, 32'h0, 32'h0, 32'h0, `TRAP_ILLEGAL_INSTR);
+        end
+    endtask
+
+    // The stop has to be a stop. A trap that reported correctly and then kept
+    // fetching would pass every check above, because the checks look at the cycle
+    // the report appears. This one runs on, and asks whether anything changed.
+    task test_trap_is_terminal;
+        reg [31:0] pc_at_trap;
+        integer j;
+        begin
+            $display("\n--- D7b: a trap stops the machine, and the report survives ---");
+            // Rebuilt rather than reused: this test needs a long observation window
+            // and markers of its own, and the shared program shape above is sized for
+            // a 60-cycle check.
+            rst = 1;
+            clear_all;
+            `IMEM[0] = enc_i(DATA_ADDR[11:0], 5'd0, 3'h0, 5'd2);
+            `IMEM[ILLEGAL_W] = with_op(enc_i(12'h000, 5'd0, 3'h0, 5'd10),
+                                       `RV_OP_SYSTEM);
+            `IMEM[ILLEGAL_W+1] = enc_i(12'd5, 5'd0, 3'h0, 5'd11);
+            `IMEM[ILLEGAL_W+2] = enc_i(12'd77, 5'd0, 3'h0, 5'd13);
+            release_reset;
+            for (j = 0; j < 60 && DUT.trap !== 1'b1; j = j + 1) @(posedge clk);
+            pc_at_trap = DUT.trap_pc;
+            if (DUT.trap !== 1'b1 || DUT.trap_cause !== `TRAP_ECALL_M) begin
+                $display("FAIL ecall halts       | trap = %0b cause = %0d",
+                         DUT.trap, DUT.trap_cause);
+                failed = failed + 1;
+            end else
+                $display("PASS ecall halts       | trap = 1 cause = %0d pc = 0x%08h",
+                         DUT.trap_cause, DUT.trap_pc);
+            // 200 more cycles. The fetch is frozen, so the instructions that were in
+            // flight ahead of the ECALL have drained and nothing new can enter: no
+            // register beyond the trap point may change, ever.
+            for (j = 0; j < 200; j = j + 1) @(posedge clk);
+            check_reg(5'd11, 32'h0, "  still no marker");
+            check_reg(5'd13, 32'h0, "  still no 2nd marker");
+            if (DUT.trap !== 1'b1) begin
+                $display("FAIL report is sticky   | trap fell back to 0 after 200 cycles");
+                failed = failed + 1;
+            end else if (DUT.trap_pc !== pc_at_trap ||
+                         DUT.trap_cause !== `TRAP_ECALL_M) begin
+                $display("FAIL report is sticky   | cause = %0d pc = 0x%08h | unchanged expected",
+                         DUT.trap_cause, DUT.trap_pc);
+                failed = failed + 1;
+            end else
+                $display("PASS report is sticky  | cause = %0d pc = 0x%08h after 200 cycles",
+                         DUT.trap_cause, DUT.trap_pc);
+        end
+    endtask
+
 
     initial begin
 `ifndef NODUMP
@@ -970,6 +1194,8 @@ module directed_tb;
         test_link_value_sweep;
         test_stall_accounting;
         test_strict_decode;
+        test_exceptions;
+        test_trap_is_terminal;
 
         $display("\n========================================");
         if (failed == 0)

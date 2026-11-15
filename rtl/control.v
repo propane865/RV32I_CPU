@@ -35,8 +35,12 @@ module control(input  [6:0] opcode, funct7,
                output reg [3:0] alu_op,
                output reg [2:0] imm_sel, branch_cond,
                // Decode verdicts, continuous: they are answers about the encoding,
-               // not fields of an instruction, so no case arm owns them.
-               output wire illegal, is_fence, is_ecall, is_ebreak);
+               // not fields of an instruction, so no case arm owns them. All three
+               // are consumed in execute 2 by rtl/trap_unit.v. FENCE needs no
+               // verdict of its own: what makes it a legal no-op is that it is not
+               // illegal, and it is the memory system - one outstanding access per
+               // port, nothing to order - that makes the no-op correct.
+               output wire illegal, is_ecall, is_ebreak);
 /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
@@ -114,12 +118,11 @@ module control(input  [6:0] opcode, funct7,
                  | ((opcode == `RV_OP_FENCE)  & fence_illegal)
                  | ((opcode == `RV_OP_SYSTEM) & system_illegal);
 
-    // Legal, write nothing, and not simply NOPs either: FENCE because this core has
-    // one outstanding access per memory and no ordering to enforce; ECALL and
-    // EBREAK because their whole architectural effect is the trap, which is
-    // generated from these qualifiers rather than from a control field. Keeping
-    // them named means the trap path never has to re-recognise an encoding.
-    assign is_fence  = (opcode == `RV_OP_FENCE)  &  f3_zero;
+    // Legal, write nothing, and not NOPs in the architectural sense either: ECALL
+    // and EBREAK because their whole effect is the trap. They are named here rather
+    // than left for the trap path to re-recognise from an opcode and an immediate,
+    // because by execute 2 the instruction is no longer available, only what decode
+    // said about it.
     assign is_ecall  = (opcode == `RV_OP_SYSTEM)  &  f3_zero & (imm12 == 12'h000);
     assign is_ebreak = (opcode == `RV_OP_SYSTEM)  &  f3_zero & (imm12 == 12'h001);
 

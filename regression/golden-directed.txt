@@ -113,142 +113,362 @@ PASS lw vs lui imm  d0 | stalls = 0
 PASS lw x0          d0 | stalls = 0
 
 --- D6: encodings the decode must reject ---
-PASS legal add                | x10 = 0x00000122
+PASS legal add      | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000122
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal sw                 | x10 = 0x00000000
+PASS legal sw       | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000022
-PASS op f7=0x21               | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS op f7=0x21     | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal sub                | x10 = 0x000000de
+PASS legal sub      | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x000000de
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal sra                | x10 = 0x00000040
+PASS legal sra      | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000040
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS op sll f7=20             | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS op sll f7=20   | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS slli f7=01               | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS slli f7=01     | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS srli f7=01               | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS srli f7=01     | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal addi hi            | x10 = 0x00000124
+PASS legal addi hi  | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000124
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal slli               | x10 = 0x00000400
+PASS legal slli     | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000400
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal srli               | x10 = 0x00000040
+PASS legal srli     | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000040
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS load f3=3                | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS load f3=3      | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS load f3=6                | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS load f3=6      | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS load f3=7                | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS load f3=7      | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS store f3=3               | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS store f3=3     | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS store f3=4               | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS store f3=4     | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS store f3=7               | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS store f3=7     | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal lb                 | x10 = 0xffffffcd
+PASS legal lb       | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0xffffffcd
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal lh                 | x10 = 0xffffabcd
+PASS legal lh       | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0xffffabcd
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal lw                 | x10 = 0x0000abcd
+PASS legal lw       | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x0000abcd
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal lbu                | x10 = 0x000000cd
+PASS legal lbu      | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x000000cd
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal lhu                | x10 = 0x0000abcd
+PASS legal lhu      | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x0000abcd
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal sb                 | x10 = 0x00000000
+PASS legal sb       | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000022
-PASS legal sh                 | x10 = 0x00000000
+PASS legal sh       | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000022
-PASS branch f3=2              | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS branch f3=2    | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS branch f3=3              | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS branch f3=3    | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS jalr f3=1                | x10 = 0x00000000
-PASS   fall-through           | x11 = 0x00000005
+PASS jalr f3=1      | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS legal jalr               | x10 = 0x00000024
+PASS legal jalr     | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000024
 PASS   fall-through           | x11 = 0x00000000
 PASS   redirect target        | x12 = 0x00000063
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS opcode 0x2f              | x10 = 0x00000000
+PASS opcode 0x2f    | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS opcode 0x7f    | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS opcode 0x0b    | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS fence nop      | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS opcode 0x7f              | x10 = 0x00000000
+PASS csrrs          | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS fence.i        | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+
+--- D7: alignment and environment-call exceptions ---
+PASS lh odd         | trap = 1 cause = 4 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS lw odd1        | trap = 1 cause = 4 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS lw even2       | trap = 1 cause = 4 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS lw odd3        | trap = 1 cause = 4 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS lhu odd        | trap = 1 cause = 4 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS lbu odd        | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x000000ab
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS opcode 0x0b              | x10 = 0x00000000
+PASS lb odd         | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0xffffffab
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS fence nop                | x10 = 0x00000000
+PASS sh odd         | trap = 1 cause = 6 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS sw odd1        | trap = 1 cause = 6 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS sw even2       | trap = 1 cause = 6 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS sw odd3        | trap = 1 cause = 6 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS sh aligned     | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
-PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS csrrs                    | x10 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00220000
+PASS sw aligned     | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
-PASS   mem[0x400]             | mem[0x0400] = 0x00000000
-PASS fence.i                  | x10 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000022
+PASS sb odd ok      | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
 PASS   fall-through           | x11 = 0x00000005
 PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x22000000
+PASS beq target 0x26 | trap = 1 cause = 0 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
 PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS jal target 0x26 | trap = 1 cause = 0 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS beq not taken  | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000005
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS jalr mask ok   | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS jalr mask bad  | trap = 1 cause = 0 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS jal aligned    | trap = 0 cause = 0 pc = 0x00000000
+PASS   rd untouched           | x10 = 0x00000024
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000063
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS ecall          | trap = 1 cause = 11 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS ebreak         | trap = 1 cause = 3 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS system f3=4    | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+PASS system imm 2   | trap = 1 cause = 2 pc = 0x00000020
+PASS   rd untouched           | x10 = 0x00000000
+PASS   fall-through           | x11 = 0x00000000
+PASS   redirect target        | x12 = 0x00000000
+PASS   older load retired     | x14 = 0x0000abcd
+PASS   mem[0x400]             | mem[0x0400] = 0x00000000
+
+--- D7b: a trap stops the machine, and the report survives ---
+PASS ecall halts       | trap = 1 cause = 11 pc = 0x00000020
+PASS   still no marker        | x11 = 0x00000000
+PASS   still no 2nd marker    | x13 = 0x00000000
+PASS report is sticky  | cause = 11 pc = 0x00000020 after 200 cycles
 
 ========================================
 ALL DIRECTED TESTS PASSED

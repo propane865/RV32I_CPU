@@ -7,8 +7,9 @@
 //               produced yet. PC and IF/ID are frozen and a bubble is injected
 //               into ID/EX until the value can be handed over.
 //
-//   redirect  - a branch or jump taken in execute 2. The instructions already
-//               fetched from the wrong path are simply discarded.
+//   discard   - a branch or jump taken in execute 2, or an exception raised there.
+//               The instructions already fetched from the wrong path are simply
+//               discarded, and while the core is stopped the injection continues.
 //
 // HOW LONG A LOAD-USE WAIT IS, AND WHY IT IS EXACTLY THAT LONG
 //
@@ -60,7 +61,12 @@ module hazard_unit (
     input  wire        i_id_uses_rs1,
     input  wire        i_id_uses_rs2,
 
-    input  wire        i_pc_redirect,
+    // Slots younger than execute 2 that must not execute: a taken redirect (they
+    // were fetched from the abandoned path) or an exception in execute 2 (the same,
+    // plus the machine is stopping). Named for the request rather than for one of
+    // its two sources, because a bubble must be injected for either, and the
+    // distinction belongs to the exception logic, not here.
+    input  wire        i_discard_younger,
 
     output wire        o_stall_pc,
     output wire        o_stall_if_id,
@@ -101,8 +107,10 @@ module hazard_unit (
     assign o_stall_if_id   = load_use;
 
     // A stall injects a bubble where the consumer would otherwise have advanced;
-    // a redirect discards everything younger than itself. Both flush ID/EX.
-    assign o_flush_id_ex   = load_use | i_pc_redirect;
-    assign o_flush_if_id   = i_pc_redirect;
-    assign o_flush_ex1_ex2 = i_pc_redirect;
+    // a redirect or an exception discards everything younger than itself. Both
+    // flush ID/EX, which is why the two requests arrive as one input: what a
+    // consumer in decode does about either of them is identical.
+    assign o_flush_id_ex   = load_use | i_discard_younger;
+    assign o_flush_if_id   = i_discard_younger;
+    assign o_flush_ex1_ex2 = i_discard_younger;
 endmodule
