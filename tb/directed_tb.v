@@ -342,6 +342,14 @@ module directed_tb;
                                             `RV_OP_FENCE), 32'h0ff0000f);
             enc_ok("slli x5,x3,4",  enc_i({7'h00, 5'd4}, 5'd3, 3'h1, 5'd5), 32'h00419293);
             enc_ok("srai x5,x3,2",  enc_i({7'h20, 5'd2}, 5'd3, 3'h5, 5'd5), 32'h4021d293);
+            // Negative displacements, pinned separately because a sign bit is the one
+            // thing an encoder can get wrong without changing any positive case. The
+            // assembler had to be shown these as backward branches to a label - an
+            // absolute "-8" it turns into a relocation and leaves the word incomplete.
+            enc_ok("beq x5,x0,-8",  enc_b(13'h1ff8, 5'd0, 5'd5, 3'h0), 32'hfe028ce3);
+            enc_ok("bne x5,x0,-8",  enc_b(13'h1ff8, 5'd0, 5'd5, 3'h1), 32'hfe029ce3);
+            enc_ok("blt x6,x3,-8",  enc_b(13'h1ff8, 5'd3, 5'd6, 3'h4), 32'hfe334ce3);
+            enc_ok("jal x10,-8",    enc_jal(21'h1ffff8, 5'd10),        32'hff9ff56f);
             if (failed == 0) $display("PASS encoders                    | all 22 match");
         end
     endtask
@@ -796,9 +804,10 @@ module directed_tb;
 
     // The one program shape every encoding case uses.
     //
-    //   word 0..5  setup: x2 = 0x200 (load/store base), x3 = 0x100, x4 = 0x22,
-    //              x7 = 2 (a shift amount), x8 = 0x50, x9 = 0x400 (store base);
-    //              mem[0x200] = 0xABCD, mem[0x400] = 0
+    //   word 0..6  setup: x2 = 0x200 (load/store base), x3 = 0x100, x4 = 0x22,
+    //              x6 = -1, x7 = 2 (a shift amount), x8 = 0x50, x9 = 0x400 (store
+    //              base); x5 and x10 are left at 0; mem[0x200] = 0xABCD,
+    //              mem[0x400] = 0
     //   word 7     lw x14, 0(x2)     - older than the encoding under test
     //   word 8     the encoding under test, always writing x10 if it writes anything
     //   word 9     addi x11, x0, 5   - runs iff execution fell through
@@ -840,7 +849,11 @@ module directed_tb;
             `IMEM[3] = enc_i(JUMP_TARGET[11:0], 5'd0, 3'h0, 5'd8);
             `IMEM[4] = enc_i(STORE_ADDR[11:0],  5'd0, 3'h0, 5'd9);
             `IMEM[5] = enc_i(12'd2,             5'd0, 3'h0, 5'd7);
-            `IMEM[6] = NOP;
+            // x6 = -1. Signed and unsigned forms of SLT, SLTI, BLT and BGE agree on
+            // every operand pair except one where a sign matters, so the sweep needs
+            // a register whose interpretation differs: as a signed number this is the
+            // smallest of them, as an unsigned number the largest.
+            `IMEM[6] = enc_i(12'hfff,            5'd0, 3'h0, 5'd6);
             // An older load, deliberately one slot ahead: it is in the memory stage
             // when the exception below is detected, so it must still retire.
             `IMEM[ILLEGAL_W-1] = enc_load(12'd0, 5'd2, 3'h2, 5'd14);
@@ -1176,6 +1189,368 @@ module directed_tb;
     endtask
 
 
+    // =========================================================================
+    // D8: one independent check per RV32I instruction
+    //
+    // Every instruction the core implements, executed for its value rather than for
+    // its legality, each in a program of its own so that a wrong answer cannot be
+    // hidden by an earlier instruction. FENCE, ECALL and EBREAK are in D6 and D7 -
+    // for them the interesting fact is what they report, not what they compute.
+    //
+    // The pairs that matter are the ones an implementation can get wrong without
+    // noticing. Signedness is the classic: this core once read BLT as BLTU, and every
+    // BEQ/BNE test in the world still passed afterwards, because equality does not
+    // depend on how the operands are interpreted. So each of the four ordering
+    // branches and both SLT forms is checked on a pair where signed and unsigned
+    // disagree - x3 = 0x100 and x6 = -1 - in BOTH directions: taken where the other
+    // reading would not take it, and not taken where the other reading would.
+    // =========================================================================
+    task test_instruction_sweep;
+        begin
+            $display("\n--- D8: every instruction, for its value ---");
+            // ---- R-type -------------------------------------------------------
+            enc_case("add",  enc_r(7'h00, 5'd4, 5'd3, 3'h0, 5'd10),
+                     32'h0000_0122, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("add neg", enc_r(7'h00, 5'd6, 5'd3, 3'h0, 5'd10),
+                     32'h0000_00ff, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("sub",  enc_r(7'h20, 5'd4, 5'd3, 3'h0, 5'd10),
+                     32'h0000_00de, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("sub neg", enc_r(7'h20, 5'd4, 5'd6, 3'h0, 5'd10),
+                     32'hffff_ffdd, 32'h5, 32'h0, 32'h0, NO_TRAP);   // -1 - 34
+            enc_case("sll",  enc_r(7'h00, 5'd7, 5'd3, 3'h1, 5'd10),
+                     32'h0000_0400, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // Signed compare: -1 < 256 is true signed, false unsigned (0xFFFFFFFF is
+            // the largest operand pair available here).
+            enc_case("slt true",  enc_r(7'h00, 5'd3, 5'd6, 3'h2, 5'd10),
+                     32'h1, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("slt false", enc_r(7'h00, 5'd6, 5'd3, 3'h2, 5'd10),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("sltu false", enc_r(7'h00, 5'd3, 5'd6, 3'h3, 5'd10),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("sltu true",  enc_r(7'h00, 5'd6, 5'd3, 3'h3, 5'd10),
+                     32'h1, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("xor",  enc_r(7'h00, 5'd4, 5'd3, 3'h4, 5'd10),
+                     32'h0000_0122, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("or",   enc_r(7'h00, 5'd4, 5'd3, 3'h6, 5'd10),
+                     32'h0000_0122, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("and",  enc_r(7'h00, 5'd4, 5'd3, 3'h7, 5'd10),
+                     32'h0000_0000, 32'h5, 32'h0, 32'h0, NO_TRAP);
+
+            // ---- I-type ALU ---------------------------------------------------
+            enc_case("addi",  enc_i(12'hfff, 5'd3, 3'h0, 5'd10),
+                     32'h0000_00ff, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("slti true",  enc_i(12'h000, 5'd6, 3'h2, 5'd10),
+                     32'h1, 32'h5, 32'h0, 32'h0, NO_TRAP);           // -1 < 0
+            enc_case("slti false", enc_i(12'hfff, 5'd4, 3'h2, 5'd10),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);           // 34 < -1
+            enc_case("sltiu false", enc_i(12'h001, 5'd6, 3'h3, 5'd10),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);           // -1 <u 1
+            // The pair that separates "compare against the immediate" from "compare
+            // against the register the immediate's low five bits name": 0x404 has
+            // imm[4:0] == 4, so the second reading is x2 < x4, which is false. The
+            // register the field points at has to hold something other than the
+            // immediate for the two to differ, which is why this took so long to
+            // notice and is why the case is spelled out here.
+            enc_case("slti imm vs field",  enc_i(12'h404, 5'd2, 3'h2, 5'd10),
+                     32'h1, 32'h5, 32'h0, 32'h0, NO_TRAP);            // 512 < 1028
+            enc_case("sltiu imm vs field", enc_i(12'h404, 5'd2, 3'h3, 5'd10),
+                     32'h1, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // A negative immediate, the other direction: -1 sign-extended, against a
+            // positive register. Signed comparison of the immediate is what makes
+            // this false.
+            enc_case("slti imm neg", enc_i(12'hfff, 5'd3, 3'h2, 5'd10),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);            // 256 < -1
+            enc_case("slti imm neg2", enc_i(12'hfff, 5'd6, 3'h2, 5'd10),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);            // -1 < -1
+            enc_case("xori",  enc_i(12'hfff, 5'd3, 3'h4, 5'd10),
+                     32'hffff_feff, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("ori",   enc_i(12'h022, 5'd3, 3'h6, 5'd10),
+                     32'h0000_0122, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("andi",  enc_i(12'h0f0, 5'd3, 3'h7, 5'd10),
+                     32'h0000_0000, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("slli",  enc_i({7'h00, 5'd4}, 5'd3, 3'h1, 5'd10),
+                     32'h0000_1000, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("srli",  enc_i({7'h00, 5'd4}, 5'd6, 3'h5, 5'd10),
+                     32'h0fff_ffff, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("srai",  enc_i({7'h20, 5'd4}, 5'd6, 3'h5, 5'd10),
+                     32'hffff_ffff, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // A shift amount of 0 and of 31: the two ends the shifter gets by
+            // separate routes, and the one that shows an unmasked shamt.
+            enc_case("slli 0",  enc_i({7'h00, 5'd0}, 5'd3, 3'h1, 5'd10),
+                     32'h0000_0100, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // x6 rather than x4: shifting 34 left by 31 is 0, because 34 is even and
+            // every bit of it leaves the word. Only a value with bit 0 set shows the
+            // top bit arriving.
+            enc_case("slli 31", enc_i({7'h00, 5'd31}, 5'd6, 3'h1, 5'd10),
+                     32'h8000_0000, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("srai 31", enc_i({7'h20, 5'd31}, 5'd6, 3'h5, 5'd10),
+                     32'hffff_ffff, 32'h5, 32'h0, 32'h0, NO_TRAP);
+
+            // ---- loads and stores ---------------------------------------------
+            // (widths and alignment are D6/D7; these are the value-level forms, and
+            // the stores are checked by what lands in memory, not by a register.)
+            enc_case("lw",    enc_load(12'h000, 5'd2, 3'h2, 5'd10),
+                     32'h0000_abcd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("lh",    enc_load(12'h000, 5'd2, 3'h1, 5'd10),
+                     32'hffff_abcd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("lhu",   enc_load(12'h000, 5'd2, 3'h5, 5'd10),
+                     32'h0000_abcd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("lb",    enc_load(12'h000, 5'd2, 3'h0, 5'd10),
+                     32'hffff_ffcd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("lbu",   enc_load(12'h000, 5'd2, 3'h4, 5'd10),
+                     32'h0000_00cd, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("sw",    enc_s(12'h000, 5'd4, 5'd9, 3'h2),
+                     32'h0, 32'h5, 32'h0, 32'h0000_0022, NO_TRAP);
+            enc_case("sh",    enc_s(12'h002, 5'd4, 5'd9, 3'h1),
+                     32'h0, 32'h5, 32'h0, 32'h0022_0000, NO_TRAP);
+            enc_case("sb",    enc_s(12'h001, 5'd4, 5'd9, 3'h0),
+                     32'h0, 32'h5, 32'h0, 32'h0000_2200, NO_TRAP);
+
+            // ---- upper immediates ---------------------------------------------
+            enc_case("lui",   enc_u(20'hdeadb, 5'd10, 7'b0110111),
+                     32'hdead_b000, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // AUIPC is the one instruction whose answer depends on where it sits, so
+            // this is also the check that the PC reaching the ALU is the instruction's
+            // own address and not the fetch's ahead-of-itself one.
+            enc_case("auipc", enc_u(20'h00001, 5'd10, 7'b0010111),
+                     32'h0000_1020, 32'h5, 32'h0, 32'h0, NO_TRAP);
+
+            // ---- jumps ---------------------------------------------------------
+            enc_case("jal",   enc_jal(21'd48, 5'd10),
+                     32'h0000_0024, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("jal x0", enc_jal(21'd48, 5'd0),
+                     32'h0000_0000, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("jalr",  enc_jalr(12'h050, 5'd0, 5'd10),
+                     32'h0000_0024, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            // JALR through a register, with the base coming from the setup rather
+            // than from an immediate: the target is rs1 + imm, so this is the check
+            // that the forwarded operand reached the target adder.
+            enc_case("jalr x8", enc_jalr(12'h000, 5'd8, 5'd10),
+                     32'h0000_0024, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            // Bit 0 of the sum is cleared before the target is used: 0x50 | 1 would
+            // be misaligned, and with the mask applied it is 0x50 and legal.
+            enc_case("jalr mask", enc_jalr(12'h051, 5'd0, 5'd10),
+                     32'h0000_0024, 32'h0, 32'h63, 32'h0, NO_TRAP);
+
+            // ---- branches, both directions, on a pair where signedness matters ---
+            // +48 reaches the redirect marker at word 20, so "taken" is proved by
+            // that register changing rather than by the absence of something.
+            enc_case("beq taken",   enc_b(13'd48, 5'd3, 5'd3, 3'h0),
+                     32'h0, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("beq flush",   enc_b(13'd48, 5'd3, 5'd4, 3'h0),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("bne taken",   enc_b(13'd48, 5'd4, 5'd3, 3'h1),
+                     32'h0, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("bne flush",   enc_b(13'd48, 5'd3, 5'd3, 3'h1),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            // BLT vs BLTU on x6 = -1, x3 = 0x100: signed -1 < 256 takes it, unsigned
+            // 0xFFFFFFFF < 256 does not. Both answers are checked for both forms.
+            enc_case("blt taken",   enc_b(13'd48, 5'd3, 5'd6, 3'h4),
+                     32'h0, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("blt flush",   enc_b(13'd48, 5'd6, 5'd3, 3'h4),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("bge taken",   enc_b(13'd48, 5'd6, 5'd3, 3'h5),
+                     32'h0, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("bge flush",   enc_b(13'd48, 5'd3, 5'd6, 3'h5),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("bltu flush",  enc_b(13'd48, 5'd3, 5'd6, 3'h6),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+            enc_case("bltu taken",  enc_b(13'd48, 5'd6, 5'd3, 3'h6),
+                     32'h0, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("bgeu taken",  enc_b(13'd48, 5'd3, 5'd6, 3'h7),
+                     32'h0, 32'h0, 32'h63, 32'h0, NO_TRAP);
+            enc_case("bgeu flush",  enc_b(13'd48, 5'd6, 5'd3, 3'h7),
+                     32'h0, 32'h5, 32'h0, 32'h0, NO_TRAP);
+        end
+    endtask
+
+    // =========================================================================
+    // D9 / D10: programs given as word lists
+    //
+    // The builders above all produce one instruction inside a fixed program, which
+    // suits checking what an instruction computes. It does not suit checking what an
+    // instruction *does to the pipeline around it*: several writers of one register,
+    // or a store sitting on a path a taken branch is about to erase, only mean
+    // anything as a sequence. So these cases lay out their own words.
+    //
+    // x2 is the load base (mem[0x200] = 0xABCD), x9 the store base (mem[0x400] = 0),
+    // x4 = 0x22, x8 = 0x50. Everything else starts at zero.
+    // =========================================================================
+    reg [31:0] prog [0:31];
+
+    task run_prog;
+        input integer n;
+        integer j;
+        begin
+            rst = 1;
+            // clear_all leaves the whole instruction memory full of NOPs, so a program
+            // shorter than the case's word list runs out into NOPs rather than into
+            // the previous case's leftovers. What it must not do is touch prog[]: the
+            // caller has already filled that in.
+            clear_all;
+            for (j = 0; j < n;  j = j + 1) `IMEM[j] = prog[j];
+            poke(DATA_ADDR,  LOAD_VAL);
+            poke(STORE_ADDR, 32'h0000_0000);
+            `RF[2] = DATA_ADDR;
+            `RF[3] = X3_VAL;
+            `RF[4] = X4_VAL;
+            `RF[8] = JUMP_TARGET;
+            `RF[9] = STORE_ADDR;
+            // Long enough for the longest program here - the loop - to finish and for
+            // anything that was going to go wrong to have gone wrong.
+            release_reset;
+            run_cycles(60);
+            rst = 1;
+        end
+    endtask
+
+    // ---- D9: when several stages hold a value for the same register --------------
+    task test_forwarding_priority;
+        begin
+            $display("\n--- D9: which pending writer of a register wins ---");
+
+            // Three writers of x5, one sitting in each forwarding stage, and a
+            // consumer that reads x5 on a cycle when all three are live: the youngest
+            // in EX1, the middle in MEM, the oldest in WB. The answer names the end of
+            // the priority chain the unit reads - youngest 3, middle 2, oldest 1.
+            // Checking only "the value is right" would not separate the three: it is
+            // the fact that all three are *different* values that does the work.
+            prog[0] = enc_i(12'd1, 5'd0, 3'h0, 5'd5);
+            prog[1] = enc_i(12'd2, 5'd0, 3'h0, 5'd5);
+            prog[2] = enc_i(12'd3, 5'd0, 3'h0, 5'd5);
+            prog[3] = enc_i(12'd0, 5'd5, 3'h0, 5'd10);
+            run_prog(4);
+            check_reg(5'd10, 32'h3, "youngest of three wins");
+
+            // Same contest, youngest writer a load: the winner has to be the load and
+            // the consumer has to wait for it, so a stale 2 and a value read before the
+            // memory answered are both caught here.
+            prog[0] = enc_i(12'd1, 5'd0, 3'h0, 5'd5);
+            prog[1] = enc_i(12'd2, 5'd0, 3'h0, 5'd5);
+            prog[2] = enc_load(12'h000, 5'd2, 3'h2, 5'd5);
+            prog[3] = enc_i(12'd0, 5'd5, 3'h0, 5'd10);
+            run_prog(4);
+            check_reg(5'd10, 32'h0000_abcd, "load wins the contest");
+
+            // x0 discards what is written to it, so nothing may be pending on it
+            // either: a younger read has to see zero, not the result the instruction
+            // that "wrote" x0 computed one stage back.
+            prog[0] = enc_r(7'h00, 5'd3, 5'd4, 3'h0, 5'd0);       // x0 = x4 + x3
+            prog[1] = enc_r(7'h00, 5'd0, 5'd0, 3'h0, 5'd10);      // x10 = x0 + x0
+            run_prog(2);
+            check_reg(5'd10, 32'h0, "x0 is never forwarded");
+
+            // The other half: because nothing is ever written to x0, reading x0 cannot
+            // depend on anything, so a load into x0 must not hold up a younger
+            // instruction that reads x0. The value alone cannot tell a stall from no
+            // stall, which is why D5 counts stalls for this case rather than here.
+            prog[0] = enc_load(12'h000, 5'd2, 3'h2, 5'd0);        // lw x0, 0(x2)
+            prog[1] = enc_i(12'h007, 5'd0, 3'h0, 5'd10);          // x10 = x0 + 7
+            run_prog(2);
+            check_reg(5'd10, 32'h7, "load to x0: no dependency");
+        end
+    endtask
+
+    // ---- D10: effects a flushed instruction must not have ------------------------
+    //
+    // A taken branch does not merely stop executing the wrong-path instructions; it
+    // has to take away everything they would otherwise have had an effect on.
+    // Registers are the visible case and D1-D5 cover those. What is left is the
+    // quieter set: a store that must not reach memory, an exception that must not be
+    // reported, and - the one forwarding gets wrong - a write that must not become
+    // the value a correctly fetched instruction reads.
+    task test_wrong_path_effects;
+        begin
+            $display("\n--- D10: effects a flushed instruction must not have ---");
+
+            // A store on the flushed path: memory is the effect with no register to
+            // look at afterwards, and by the time the redirect lands the store's
+            // address and data have both been forwarded, so it has everything it needs
+            // to do damage.
+            prog[0] = enc_b(13'd12, 5'd0, 5'd0, 3'h0);            // taken
+            prog[1] = enc_s(12'h000, 5'd4, 5'd9, 3'h2);           // sw x4, 0(x9)
+            prog[2] = enc_i(12'd5, 5'd0, 3'h0, 5'd11);
+            prog[3] = enc_i(12'd99, 5'd0, 3'h0, 5'd12);
+            run_prog(4);
+            check_mem_word13(STORE_ADDR, 32'h0, "flushed store writes nothing");
+            check_reg(5'd11, 32'h0, "flushed instruction ran");
+            check_reg(5'd12, 32'h63, "branch target ran");
+            check_reg(5'd10, 32'h0, "no link written by a branch");
+
+            // A misaligned load on the flushed path. Exceptions are raised in execute
+            // 2, which is also where the redirect is produced, so this case is about
+            // which of the two wins: the branch says the load is not on the path, and
+            // the machine has to believe it and keep running.
+            prog[0] = enc_b(13'd12, 5'd0, 5'd0, 3'h0);            // taken
+            prog[1] = enc_load(12'h001, 5'd2, 3'h2, 5'd10);       // lw x10, 1(x2)
+            prog[3] = enc_i(12'd99, 5'd0, 3'h0, 5'd12);
+            run_prog(4);
+            if (DUT.trap !== 1'b0) begin
+                failed = failed + 1;
+                $display("FAIL %-24s | trap = %b cause = %0d at 0x%08h",
+                         "flushed misalign trapped", DUT.trap,
+                         DUT.trap_cause, DUT.trap_pc);
+            end else begin
+                $display("PASS %-24s | no exception, core ran on", "flushed misalign trapped");
+            end
+            check_reg(5'd10, 32'h0, "flushed load wrote a register");
+            check_reg(5'd12, 32'h63, "branch target ran");
+
+            // Again behind a JAL, because that redirect arrives with a link write
+            // attached and travels a different data path.
+            prog[0] = enc_jal(21'd12, 5'd10);
+            prog[1] = enc_s(12'h000, 5'd4, 5'd9, 3'h1);           // sh x4, 0(x9)
+            prog[3] = enc_i(12'd99, 5'd0, 3'h0, 5'd12);
+            run_prog(4);
+            check_mem_word13(STORE_ADDR, 32'h0, "store flushed behind a jump");
+            check_reg(5'd10, 32'h4, "jump link");
+            check_reg(5'd12, 32'h63, "jump target ran");
+
+            // The forwarding form. The target reads x5; the flushed instruction between
+            // the branch and the target also writes x5. Forwarding decides on register
+            // numbers and pipeline positions, and neither of those says "the
+            // instruction in EX/MEM was on the path we just abandoned" - only the flush
+            // does. If a flushed write is ever forwarded, x10 comes out 9.
+            prog[0] = enc_i(12'd7, 5'd0, 3'h0, 5'd5);             // x5 = 7
+            prog[1] = enc_b(13'd8, 5'd0, 5'd0, 3'h0);             // taken: 0x04 + 8 = word 3
+            prog[2] = enc_i(12'd9, 5'd0, 3'h0, 5'd5);             // x5 = 9, flushed
+            prog[3] = enc_r(7'h00, 5'd0, 5'd5, 3'h0, 5'd10);      // x10 = x5 + x0
+            run_prog(4);
+            check_reg(5'd10, 32'h7, "flushed write not forwarded");
+
+            // A not-taken branch is the opposite case: it resolves, changes nothing,
+            // and the instruction after it still has to receive what the instruction
+            // before it produced. There is no flush to lean on here, so a branch slot
+            // that swallowed a forwarding source shows up as a stale zero.
+            prog[0] = enc_r(7'h00, 5'd3, 5'd4, 3'h0, 5'd5);       // x5 = x4 + x3 = 0x122
+            prog[1] = enc_b(13'd8, 5'd3, 5'd4, 3'h0);             // not taken
+            prog[2] = enc_r(7'h00, 5'd0, 5'd5, 3'h0, 5'd10);      // x10 = x5 + x0
+            prog[3] = enc_i(12'd5, 5'd0, 3'h0, 5'd11);            // still executed
+            run_prog(4);
+            check_reg(5'd10, 32'h0000_0122, "value past a not-taken branch");
+            check_reg(5'd11, 32'h5, "not-taken fell through");
+
+            // Backward branch: a loop, the one place a redirect goes somewhere lower
+            // than the address being fetched and the one place a value written in one
+            // iteration is read by the next. x10 reaching 4 is the loop-carried
+            // dependency arriving; x11 being 5 says the loop left by the branch rather
+            // than by running off the end, and x5 at zero says it left after four
+            // iterations rather than three or five.
+            prog[0] = enc_i(12'd4,   5'd0,  3'h0, 5'd5);          // x5 = 4
+            prog[1] = enc_i(12'd1,   5'd10, 3'h0, 5'd10);         // x10 = x10 + 1
+            prog[2] = enc_i(12'hfff, 5'd5,  3'h0, 5'd5);          // x5 = x5 - 1
+            // -8 as a 13-bit field is 0x1ff8, not 0xff8; the shorter form is +4088,
+            // which sends the loop somewhere nothing is waiting for it. enc_b is
+            // checked against the assembler on exactly this value in D0.
+            prog[3] = enc_b(13'h1ff8, 5'd0, 5'd5, 3'h1);           // bne x5, x0, -8
+            prog[4] = enc_i(12'd5,   5'd0,  3'h0, 5'd11);
+            run_prog(5);
+            check_reg(5'd10, 32'h4, "loop iterations");
+            check_reg(5'd5,  32'h0, "loop counter reached zero");
+            check_reg(5'd11, 32'h5, "loop fell out at the end");
+        end
+    endtask
+
     initial begin
 `ifndef NODUMP
         $dumpfile("build/directed_tb.vcd");
@@ -1193,6 +1568,9 @@ module directed_tb;
         test_address_operand_sweep;
         test_link_value_sweep;
         test_stall_accounting;
+        test_instruction_sweep;
+        test_forwarding_priority;
+        test_wrong_path_effects;
         test_strict_decode;
         test_exceptions;
         test_trap_is_terminal;

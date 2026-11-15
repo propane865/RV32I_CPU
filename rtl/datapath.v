@@ -313,10 +313,22 @@ module datapath(
     wire [31:0] ex_alu_out;
     wire        ex_gt_b, ex_lt_b, ex_eq_b;
 
-    // Branch comparisons are taken from the forwarded operands, not the ALU
-    // inputs, because a branch never uses the immediate.
+    // The comparison's operands are the forwarded source registers, except when
+    // the instruction's second operand is an immediate - which is exactly when
+    // alu_src is set, so alu_b is the right second operand for both cases and is
+    // already the mux that says so.
+    //
+    // Taking it from fwd_rs2 instead, as this used to, is not a wrong value for
+    // SLTI/SLTIU: it is a wrong *question*. An I-type has no rs2 - bits [24:20] are
+    // imm[4:0], which names a register rather than holding one - so the comparison
+    // was against whatever register the immediate's low five bits happened to point
+    // at. `sltiu x10, x2, 0x404` asked whether x2 < x4, and got 0 for 512 < 1032.
+    // It survived because imm[4:0] == 0 selects x0, which reads 0, and a comparison
+    // against an immediate of 0 is the same comparison either way: the case that
+    // would have caught it had to use an immediate whose low five bits name a
+    // register holding something other than the immediate.
     comp32 BCOMP(
-        .a  (fwd_rs1), .b (fwd_rs2),
+        .a  (fwd_rs1), .b (alu_b),
         .u  (~idex_cmp_sgn),
         .gt (ex_gt_b), .lt (ex_lt_b), .eq (ex_eq_b)
     );
