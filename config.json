@@ -1,9 +1,8 @@
 {
     "DESIGN_NAME": "rv32i_core",
-
     "PDK": "sky130A",
     "STD_CELL_LIBRARY": "sky130_fd_sc_hd",
-
+    "PRIMARY_GDSII_STREAMOUT_TOOL": "klayout",
     "VERILOG_FILES": [
         "dir::rtl/rv32i_core.v",
         "dir::rtl/alu.v",
@@ -25,7 +24,6 @@
         "dir::rtl/regfile.v",
         "dir::rtl/shifter.v",
         "dir::rtl/trap_unit.v",
-
         "dir::rtl/mem/dmem.v",
         "dir::rtl/mem/dmem_r_lanes.v",
         "dir::rtl/mem/dmem_sram.v",
@@ -33,24 +31,19 @@
         "dir::rtl/mem/imem.v",
         "dir::rtl/mem/imem_sram.v"
     ],
-
     "VERILOG_INCLUDE_DIRS": [
         "dir::rtl"
     ],
-
     "VERILOG_DEFINES": [
         "USE_SRAM_MEMS"
     ],
-
     "CLOCK_PORT": "clk",
     "CLOCK_PERIOD": 50,
-
-    "STA_CORNERS": ["nom_tt_025C_1v80"],
-
-    "FP_SIZING": "relative",
-    "FP_CORE_UTIL": 35,
-    "PL_TARGET_DENSITY_PCT": 45,
-
+    "STA_CORNERS": [
+        "nom_tt_025C_1v80"
+    ],
+    "FP_SIZING": "absolute",
+    "PL_TARGET_DENSITY_PCT": 20,
     "MACROS": {
         "sky130_sram_2kbyte_1rw1r_32x512_8": {
             "lef": [
@@ -68,15 +61,77 @@
                 ]
             },
             "instances": {
-                "DP.DMEM.IMPL.sram0": {"location": [5.52, 10.88], "orientation": "R0"},
-                "DP.DMEM.IMPL.sram1": {"location": [698.74, 10.88], "orientation": "R0"},
-                "DP.DMEM.IMPL.sram2": {"location": [1391.96, 10.88], "orientation": "R0"},
-                "DP.DMEM.IMPL.sram3": {"location": [5.52, 437.92], "orientation": "R0"},
-                "DP.IMEM.IMPL.sram0": {"location": [698.74, 437.92], "orientation": "R0"},
-                "DP.IMEM.IMPL.sram1": {"location": [1391.96, 437.92], "orientation": "R0"},
-                "DP.IMEM.IMPL.sram2": {"location": [5.52, 864.96], "orientation": "R0"},
-                "DP.IMEM.IMPL.sram3": {"location": [698.74, 864.96], "orientation": "R0"}
+                "DP.DMEM.IMPL.sram0": {
+                    "location": [
+                        100.0,
+                        100.0
+                    ],
+                    "orientation": "R0"
+                },
+                "DP.DMEM.IMPL.sram1": {
+                    "location": [
+                        883.1,
+                        100.0
+                    ],
+                    "orientation": "R0"
+                },
+                "DP.DMEM.IMPL.sram2": {
+                    "location": [
+                        1666.2,
+                        100.0
+                    ],
+                    "orientation": "R0"
+                },
+                "DP.DMEM.IMPL.sram3": {
+                    "location": [
+                        2449.3,
+                        100.0
+                    ],
+                    "orientation": "R0"
+                },
+                "DP.IMEM.IMPL.sram0": {
+                    "location": [
+                        100.0,
+                        980.0
+                    ],
+                    "orientation": "R0"
+                },
+                "DP.IMEM.IMPL.sram1": {
+                    "location": [
+                        883.1,
+                        980.0
+                    ],
+                    "orientation": "R0"
+                },
+                "DP.IMEM.IMPL.sram2": {
+                    "location": [
+                        1666.2,
+                        980.0
+                    ],
+                    "orientation": "R0"
+                },
+                "DP.IMEM.IMPL.sram3": {
+                    "location": [
+                        2449.3,
+                        980.0
+                    ],
+                    "orientation": "R0"
+                }
             }
         }
-    }
+    },
+    "DIE_AREA": [
+        0,
+        0,
+        3250,
+        1500
+    ],
+    "CORE_AREA": [
+        20,
+        20,
+        3230,
+        1480
+    ],
+    "FP_MACRO_HORIZONTAL_HALO": 20,
+    "FP_MACRO_VERTICAL_HALO": 20
 }
