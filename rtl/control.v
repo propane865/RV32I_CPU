@@ -1,10 +1,16 @@
 `timescale 1ns/1ns
 // CPU control unit - main decode
 //
-// Purely combinational: instruction fields in, control fields out. Every output
-// is a reg given a default at the top of the block, so an unrecognised opcode
-// falls through to an all-defaults encoding that behaves as a NOP (no register
-// write, no memory write, no PC redirect) rather than latching.
+// Purely combinational: instruction fields in, control fields out. The decode is
+// total: every one of the 2^32 instruction words is either a legal RV32I
+// instruction this core implements, or it is reported by `illegal`. An illegal
+// encoding asserts nothing at all - no register write, no memory access, no PC
+// redirect - because legality is decided once from the whole instruction rather
+// than per case arm. An arm that defends only its own field is how funct7 = 0x21
+// came to execute as ADD, and how LOAD funct3 = 3'b011 came to write zero to rd.
+//
+// Every output is a reg given a default at the top of the block, so a field the
+// opcode does not use keeps its default rather than latching something stale.
 //
 // The ALU control surface is just `alu_op`: the operation code says whether to
 // invert B, whether to carry-in, and which way to shift. `cmp_sgn` is the odd one
@@ -15,13 +21,107 @@
 // signedness - which is exactly how this bug survived for so long.
 // funct7 is taken as the whole architectural field even though RV32I only uses
 // bit 5 of it (SUB vs ADD, SRA vs SRL); narrowing the port to one bit would hide
-// which instruction field it came from.
+// which instruction field it came from - and the whole field is what makes an
+// unrecognised R-type encoding detectable.
 /* verilator lint_off UNUSEDSIGNAL */
-module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_src, reg_w_ena, mem_w_ena, mem_r_ena, mem_signed, cmp_sgn, uses_rs1, uses_rs2, branch, jump, jalr, output reg [1:0] alu_src_a, wb_sel, mem_width, output reg [3:0] alu_op, output reg [2:0] imm_sel, branch_cond);
+module control(input  [6:0] opcode, funct7,
+               input  [2:0] funct3,
+               // instr[31:20]. Nothing here looks at it except SYSTEM, where it is
+               // the only thing that tells ECALL from EBREAK.
+               input  [11:0] imm12,
+               output reg alu_src, reg_w_ena, mem_w_ena, mem_r_ena, mem_signed,
+                        cmp_sgn, uses_rs1, uses_rs2, branch, jump, jalr,
+               output reg [1:0] alu_src_a, wb_sel, mem_width,
+               output reg [3:0] alu_op,
+               output reg [2:0] imm_sel, branch_cond,
+               // Decode verdicts, continuous: they are answers about the encoding,
+               // not fields of an instruction, so no case arm owns them.
+               output wire illegal, is_fence, is_ecall, is_ebreak);
 /* verilator lint_on UNUSEDSIGNAL */
     `include "defines.vh"
 
     wire is_sub = (opcode == `RV_OP) && funct7[`RV_FUNC7_B5];
+
+    // =========================================================================
+    // Legal encodings, decided once from the whole instruction
+    //
+    // One place, because the question "may this encoding execute?" has to have one
+    // answer. Asked per case arm, each arm only ever rejects the field it looks at,
+    // which is how an unrecognised funct7 executed as ADD and an illegal LOAD
+    // funct3 wrote a zero to rd: both were "not my field".
+    // =========================================================================
+    wire f7_base = (funct7 == `RV_F7_BASE);
+    wire f7_alt  = (funct7 == `RV_F7_ALT);
+
+    // R-type: RV32I defines exactly these two funct7 values, and the alternate one
+    // exists for two funct3 values only - SUB and SRA. funct7 = 0x21 is neither
+    // ADD nor SUB nor anything else; it must not execute.
+    wire op_illegal = ~f7_base & ~(f7_alt & ((funct3 == `RV_F3_ADD) |
+                                             (funct3 == `RV_F3_SRL)));
+
+    // I-type ALU: for every form but the two shifts, the top seven bits are
+    // immediate data (imm[11:5]) and any value is legal. SLLI requires them zero;
+    // SRLI and SRAI share a funct3 and are told apart by it alone.
+    wire op_imm_illegal = ((funct3 == `RV_F3_SLL) & ~f7_base)
+                       | ((funct3 == `RV_F3_SRL) & ~(f7_base | f7_alt));
+
+    // Five load widths out of eight funct3 values, three store widths out of
+    // eight. The missing three loads are 3'b011 and 3'b111 (the store forms with
+    // the signedness bit set); the missing stores are 3'h3 through 3'h7.
+    wire load_illegal = ~((funct3 == `RV_F3_LB)  | (funct3 == `RV_F3_LH) |
+                          (funct3 == `RV_F3_LW)  | (funct3 == `RV_F3_LBU) |
+                          (funct3 == `RV_F3_LHU));
+    wire store_illegal = ~((funct3 == `RV_F3_SB) | (funct3 == `RV_F3_SH) |
+                           (funct3 == `RV_F3_SW));
+
+    // Branches take six of the eight: BEQ, BNE and the four ordering forms. funct3
+    // 2 and 3 are the holes, and they used to decode as branch_cond 2 and 3, which
+    // the branch unit read as neither-equal-nor-ordering and never took.
+    wire branch_illegal = (funct3 == 3'h2) | (funct3 == 3'h3);
+
+    // JALR, FENCE and SYSTEM each have exactly one funct3; anything else on those
+    // opcodes is a different instruction (or, for SYSTEM, a CSR form) that this
+    // core does not have.
+    wire f3_zero = (funct3 == 3'h0);
+
+    // JALR has no sub-encodings; anything but funct3 = 0 is not a JALR.
+    wire jalr_illegal = ~f3_zero;
+
+    // FENCE is the only encoding MISC-MEM has.
+    wire fence_illegal = ~f3_zero;
+
+    // SYSTEM holds ECALL, EBREAK, and everything the privileged architecture puts
+    // behind funct3 != 0 - the CSRRW/CSRRS/... forms and FENCE.I. Neither the CSRs
+    // nor Zifencei is implemented, so calling all of them illegal is what turns
+    // "no CSR block" from a claim into a checked property.
+    wire system_illegal = ~f3_zero |
+                          ((imm12 != 12'h000) & (imm12 != 12'h001));
+
+    wire opcode_known = (opcode == `RV_OP)      | (opcode == `RV_OP_IMM) |
+                        (opcode == `RV_LOAD)    | (opcode == `RV_STORE)  |
+                        (opcode == `RV_BRANCH)  | (opcode == `RV_LUI)    |
+                        (opcode == `RV_AUIPC)   | (opcode == `RV_JAL)    |
+                        (opcode == `RV_JALR)    | (opcode == `RV_OP_FENCE) |
+                        (opcode == `RV_OP_SYSTEM);
+
+    assign illegal = ~opcode_known
+                 | ((opcode == `RV_OP)        & op_illegal)
+                 | ((opcode == `RV_OP_IMM)    & op_imm_illegal)
+                 | ((opcode == `RV_LOAD)      & load_illegal)
+                 | ((opcode == `RV_STORE)     & store_illegal)
+                 | ((opcode == `RV_BRANCH)    & branch_illegal)
+                 | ((opcode == `RV_JALR)      & jalr_illegal)
+                 | ((opcode == `RV_OP_FENCE)  & fence_illegal)
+                 | ((opcode == `RV_OP_SYSTEM) & system_illegal);
+
+    // Legal, write nothing, and not simply NOPs either: FENCE because this core has
+    // one outstanding access per memory and no ordering to enforce; ECALL and
+    // EBREAK because their whole architectural effect is the trap, which is
+    // generated from these qualifiers rather than from a control field. Keeping
+    // them named means the trap path never has to re-recognise an encoding.
+    assign is_fence  = (opcode == `RV_OP_FENCE)  &  f3_zero;
+    assign is_ecall  = (opcode == `RV_OP_SYSTEM)  &  f3_zero & (imm12 == 12'h000);
+    assign is_ebreak = (opcode == `RV_OP_SYSTEM)  &  f3_zero & (imm12 == 12'h001);
 
     always @(*) begin
         // Initialize default signal values
@@ -56,6 +156,10 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
         imm_sel = `IMM_I;
         branch_cond = 0;
 
+        // An unrecognised or half-recognised encoding stops here: the defaults
+        // above stand, so it retires having touched nothing. rtl/trap_unit.v turns
+        // the same verdict into a reported exception.
+        if (!illegal) begin
         case (opcode)
             // -----------------------------------------------------------------
             // R-type (OP) and register-immediate (OP_IMM) ALU instructions.
@@ -249,12 +353,29 @@ module control(input [6:0] opcode, funct7, input [2:0] funct3, output reg alu_sr
                 imm_sel = `IMM_I;
             end
 
-            // Anything else is not a valid RV32I opcode. Every output keeps the
-            // default assigned at the top of this block, which decodes to a NOP:
-            // no register write, no memory write, no PC redirect. This is a
-            // silent NOP rather than an illegal-instruction trap because the core
-            // has no trap support.
+            // FENCE: a decoded legal no-op, not a default fall-through. The
+            // distinction is the whole point - this core has one outstanding access
+            // per memory port, so there is nothing to order, but that is a property
+            // of this memory system, not a reason to leave the encoding undecoded.
+            `RV_OP_FENCE: ;      // uses no registers, writes nothing, no redirect -
+                                 // the defaults say all of that, and uses_rs1/2 stay
+                                 // 0 so the hazard unit does not hold FENCE behind a
+                                 // load whose register its immediate bits happen to
+                                 // name.
+
+            // ECALL / EBREAK. Nothing to execute: the trap is raised in execute 2
+            // from is_ecall / is_ebreak, by which point everything younger has been
+            // flushed and this instruction has been kept out of the memory stage.
+            // They read and write no registers, which is what the defaults already
+            // say - a CSR form would have read one, and it is illegal (above).
+            `RV_OP_SYSTEM: ;
+
+            // Every opcode RV32I defines is listed above, and the illegal ones never
+            // reach this case at all (the `if (!illegal)` above keeps them out), so
+            // there is nothing left to fall through to: an unknown opcode is
+            // `illegal`, not a NOP by omission.
             default: ;
         endcase
+        end
     end
 endmodule

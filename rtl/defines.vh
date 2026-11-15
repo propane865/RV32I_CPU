@@ -23,6 +23,8 @@
 `define RV_AUIPC   7'b0010111
 `define RV_JAL     7'b1101111
 `define RV_JALR    7'b1100111
+`define RV_OP_FENCE 7'b0001111  // MISC-MEM: FENCE
+`define RV_OP_SYSTEM 7'b1110011 // ENV: ECALL, EBREAK - and the CSR forms, absent here
 
 // ------------------------------------------------------- funct3: ALU (R/I) --
 `define RV_F3_ADD  3'h0   // ADD / SUB, ADDI
@@ -45,16 +47,33 @@
 `define RV_F3_BGEU 3'h7
 
 // --------------------------------------------------- funct3: loads / stores --
-// Bits [1:0] select the access width, bit [2] selects signedness on loads.
-`define RV_F3_B    3'h4   // LB, SB
-`define RV_F3_BU   3'h5   // LBU
-`define RV_F3_H    3'h6   // LH, SH
-`define RV_F3_HU   3'h7   // LHU
-`define RV_F3_W    3'h2   // LW, SW
+// Loads and stores share the encoding, which is why the pairs below have equal
+// values: the opcode distinguishes them, funct3 only says width and signedness.
+// Bits [1:0] select the width, bit [2] selects signedness on loads - so the two
+// encodings with no legal load form (3'b011, 3'b111) are the ones with a legal
+// store form, and the two with no legal store form are the unsigned loads.
+//
+// These replace a set of constants that were simply wrong (LB/SB were given as
+// 3'h4, LH/SH as 3'h6, LHU as 3'h7, which are the *store* and *branch* slots).
+// Nothing referenced them, so nothing was broken - which is the worst kind of
+// wrong, because the next person to write a load decode would have trusted them.
+`define RV_F3_LB   3'h0
+`define RV_F3_LH   3'h1
+`define RV_F3_LW   3'h2
+`define RV_F3_LBU  3'h4
+`define RV_F3_LHU  3'h5
+`define RV_F3_SB   3'h0
+`define RV_F3_SH   3'h1
+`define RV_F3_SW   3'h2
 
 // ------------------------------------------------------- funct7: SUB / SRA --
 // Only bit 5 distinguishes ADD from SUB and SRL from SRA.
 `define RV_FUNC7_B5 5
+// ... and RV32I defines exactly two whole funct7 values for R-type, of which the
+// alternate one exists for only two funct3 values. Both facts are needed to call
+// an encoding illegal: funct7 = 0x21 is not SUB, not ADD, and not anything.
+`define RV_F7_BASE 7'h00
+`define RV_F7_ALT  7'h20
 
 // ---------------------------------------------------------- NOP instruction --
 // Used to fill flushed pipeline slots; addi x0, x0, 0.
@@ -105,6 +124,22 @@
 `define IMM_B      3'd2
 `define IMM_U      3'd3
 `define IMM_J      3'd4
+
+// --------------------------------------------------------------- trap cause --
+// Architectural exception causes, so that a later CSR version can write them
+// straight into mcause without re-deriving anything. Values are the privileged
+// spec's, not this core's: 0, 2, 3, 4, 6 and 11 are instruction-address
+// misaligned, illegal instruction, breakpoint, load address misaligned, store
+// address misaligned and environment call from M-mode. Four bits holds all six
+// and is narrower than mcause's XLEN-wide field, which is the right direction to
+// be wrong in: adding a cause is a define, not a refactor.
+`define TRAP_CAUSE_W        4
+`define TRAP_INSTR_MISALIGN 4'd0
+`define TRAP_ILLEGAL_INSTR  4'd2
+`define TRAP_BREAKPOINT     4'd3
+`define TRAP_LOAD_MISALIGN  4'd4
+`define TRAP_STORE_MISALIGN 4'd6
+`define TRAP_ECALL_M        4'd11
 
 // ------------------------------------------------------------ writeback mux --
 `define WB_ALU     2'd0

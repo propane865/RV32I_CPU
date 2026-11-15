@@ -78,6 +78,11 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
     control CTRL(
         .opcode     (id_opcode),
         .funct7     (id_funct7), .funct3 (id_funct3),
+        // instr[31:20], for the two SYSTEM encodings ECALL and EBREAK - see
+        // rtl/control.v. The immediate itself is generated from the same field by
+        // imm_gen, but the decode verdict is about the encoding, not a value, so it
+        // is asked here rather than inferred downstream from imm.
+        .imm12      (ifid_instr[31:20]),
         .alu_src    (id_alu_src), .alu_src_a (id_alu_src_a),
         .reg_w_ena  (id_reg_w_ena), .mem_w_ena (id_mem_w_ena),
         .mem_r_ena  (id_mem_r_ena),
@@ -88,7 +93,16 @@ module datapath(input clk, rst, output [31:0] pc_out, dmem_addr, dmem_wdata, dme
         .wb_sel     (id_wb_sel), .mem_width (id_mem_width),
         .alu_op     (id_alu_op),
         .imm_sel    (id_imm_sel),
-        .branch_cond(id_branch_cond)
+        .branch_cond(id_branch_cond),
+        // Decode verdicts about the encoding rather than about execution: no case
+        // arm owns them, and nothing in the pipeline acts on them. An instruction
+        // control.v calls illegal already asserts nothing at all, which is why the
+        // pins are empty rather than tied into a control path - the consumer is the
+        // exception report, which is not a control signal of this core.
+        .illegal    (),
+        .is_fence   (),
+        .is_ecall   (),
+        .is_ebreak  ()
     );
 
     reg [31:0]  wb_data;      // writeback mux output, driven in stage 6
