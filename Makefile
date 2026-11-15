@@ -9,6 +9,10 @@
 #   make synth      yosys elaboration + cell statistics (sky130 cleanliness gate)
 #   make waves      simulate and leave build/core_tb.vcd behind
 #   make all        lint + lint-asic + check + synth
+#
+#   riscv-tests (see vendor/riscv-tests/UPSTREAM.md and tb/env/README.md):
+#   make test-images           assemble + link + convert every rv32ui test
+#   make build/tests/rv32ui-p-add.imem.hex   one test, through the same rules
 # =============================================================================
 
 IVERILOG ?= iverilog
@@ -70,7 +74,8 @@ endif
 VVP_SIM  := $(BUILD)/core-$(DUMP_MODE).vvp
 DIRECTED_SIM := $(BUILD)/directed.vvp
 
-.PHONY: all sim check baseline directed directed-baseline lint lint-asic synth synth-asic mem-agree pipe-stats waves dirs clean
+.PHONY: all sim check baseline directed directed-baseline lint lint-asic \
+        synth synth-asic mem-agree pipe-stats waves dirs clean test-images
 
 all: lint lint-asic check mem-agree synth synth-asic pipe-stats
 
@@ -197,6 +202,79 @@ pipe-stats: | dirs
 		     | awk '/DFF/{d+=$$2} END{print d+0}'); \
 		printf "  %-14s %5d flops\n" $$m $$n; total=$$((total+n)); \
 	done; printf "  %-14s %5d flops (total pipeline storage)\n" TOTAL $$total
+
+# ---------------------------------------------------------------- riscv-tests --
+#
+# Upstream RV32I test bodies (vendor/riscv-tests, pinned in UPSTREAM.md) built
+# against tb/env, the CSR-free environment this core can actually assemble.
+#
+# The naming follows riscv-tests' own convention, rv32ui-p-<test>, because that is
+# the name a failure is reported under everywhere else; the source is the shorter
+# <test>.S, which the pattern rule below maps.
+
+RISCV_CC      ?= riscv64-unknown-elf-gcc
+RISCV_READELF ?= riscv64-unknown-elf-readelf
+PYTHON        ?= python3
+
+RVTEST_ISA   := vendor/riscv-tests/isa
+RVTEST_ENV   := tb/env
+TEST_BUILD   := $(BUILD)/tests
+
+# Tests that are not run, each with the reason written up in tb/env/README.md:
+#   fence_i  needs the Zifencei extension (`fence.i` does not assemble for
+#            -march=rv32i) and a memory that instructions can be written back
+#            into, which a core with separate instruction and data memories
+#            does not have.
+#   ma_data  requires a misaligned load or store to complete rather than raise
+#            load-address-misaligned / store-address-misaligned, which is the
+#            opposite of what rtl/trap_unit.v does.
+# Everything else in the suite builds, and `make compliance` is what proves it.
+RVTEST_SKIP  := fence_i ma_data
+RVTEST_TESTS := $(addprefix rv32ui-p-,\
+                  $(filter-out $(RVTEST_SKIP),$(notdir $(basename $(wildcard $(RVTEST_ISA)/rv32ui/*.S)))))
+
+# -mno-relax is not a workaround for a toolchain quirk: gp is TESTNUM here
+# (tb/env/riscv_test.h), and linker relaxation is entitled to rewrite
+# lui/addi pairs into gp-relative small-data accesses, which would quietly make
+# the linker own a register the tests are using to report their own results.
+RVTEST_CFLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -static -O2 \
+                 -mno-relax -I$(RVTEST_ENV) -I$(RVTEST_ISA)/macros/scalar \
+                 -T$(RVTEST_ENV)/link.ld
+
+$(TEST_BUILD):
+	@mkdir -p $@
+
+$(TEST_BUILD)/rv32ui-p-%.riscv: $(RVTEST_ISA)/rv32ui/%.S $(RVTEST_ENV)/riscv_test.h $(RVTEST_ENV)/link.ld | $(TEST_BUILD)
+	@if ! command -v $(RISCV_CC) >/dev/null 2>&1; then \
+		echo "compliance build SKIPPED: $(RISCV_CC) not installed"; exit 1; \
+	fi
+	$(RISCV_CC) $(RVTEST_CFLAGS) -o $@ $<
+
+# One recipe, two outputs: the converter writes both hex images in a single pass
+# over the ELF, and as separate targets they would either run it twice or let a
+# half-converted pair look up to date. Grouped targets (`&:`) say what is really
+# true, which is that the pair is one artefact.
+#
+# tb/elf2hex.py is also where the memory map is enforced - section and segment
+# tables against the 8 KiB memories, no overlaps, room left for the stack - so a
+# test that would wrap around an address range at run time fails here instead,
+# with the section and the rule named.
+# The ELF is built by one pattern rule and consumed by another, which makes it an
+# intermediate as far as GNU make is concerned, and make deletes intermediates it
+# believes nothing retains. It is kept on purpose: when a compliance test fails, the
+# ELF is the thing you objdump, and re-downloading a deleted artefact to look at it
+# is a bad way to spend a debugging session.
+.PRECIOUS: $(TEST_BUILD)/rv32ui-p-%.riscv
+
+$(TEST_BUILD)/rv32ui-p-%.imem.hex $(TEST_BUILD)/rv32ui-p-%.dmem.hex &: $(TEST_BUILD)/rv32ui-p-%.riscv tb/elf2hex.py | $(TEST_BUILD)
+	# $* is the bare test name (`add`), the artefacts are the upstream-named pair
+	# (`rv32ui-p-add`), and the testbench is given that name to report under.
+	$(PYTHON) tb/elf2hex.py --elf $< --out $(TEST_BUILD)/rv32ui-p-$* \
+		--readelf $(RISCV_READELF)
+
+test-images: $(addsuffix .imem.hex,$(addprefix $(TEST_BUILD)/,$(RVTEST_TESTS)))
+	@echo "$(words $(RVTEST_TESTS)) riscv-tests images built in $(TEST_BUILD)"
+
 
 # ------------------------------------------------------------------ synth ---
 
