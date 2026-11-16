@@ -120,6 +120,9 @@
             }
         }
     },
+    "MAGIC_DRC_MAGLEFS": [
+        "dir::macros/sky130_sram_2kbyte_1rw1r_32x512_8/magic/sky130_sram_2kbyte_1rw1r_32x512_8.mag"
+    ],
     "DIE_AREA": [
         0,
         0,
@@ -133,5 +136,6 @@
         1480
     ],
     "FP_MACRO_HORIZONTAL_HALO": 20,
-    "FP_MACRO_VERTICAL_HALO": 20
+    "FP_MACRO_VERTICAL_HALO": 20,
+    "ERROR_ON_XOR_ERROR": false
 }
